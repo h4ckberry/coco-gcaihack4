@@ -41,7 +41,7 @@ export default function Home() {
   }, [captureAndSend]);
 
   return (
-    <main className="h-screen w-full flex flex-col bg-black relative overflow-hidden">
+    <main className="min-h-screen w-full flex flex-col bg-black relative">
       {/* Hidden Webcam - Moved off-screen to preserve render resolution */}
       <div className="fixed top-[-10000px] left-[-10000px]">
          <Webcam
@@ -59,22 +59,20 @@ export default function Home() {
          />
       </div>
 
-      <div className="flex-1 w-full relative">
+      <div className="w-full relative">
         <Image 
           src={mainVisual01} 
           alt="Character 01" 
-          fill 
-          className="object-cover" 
+          className="w-full h-auto block"
           priority 
         />
       </div>
 
-      <div className="flex-1 w-full relative">
+      <div className="w-full relative">
         <Image 
           src={mainVisual02} 
           alt="Character 02" 
-          fill 
-          className="object-cover" 
+          className="w-full h-auto block" 
         />
       </div>
       
