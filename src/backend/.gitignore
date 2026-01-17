@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual Environments
+venv/
+.venv/
+env/
+.env/
+
+# Build
+bin/
+obj/
+build/
+dist/
+*.egg-info/
+
+# Environment Variables
+.env
