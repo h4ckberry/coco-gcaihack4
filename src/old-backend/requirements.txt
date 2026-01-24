@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+google-cloud-aiplatform>=1.48.0
+google-cloud-firestore
+google-cloud-texttospeech
+google-cloud-storage
+pydantic
+python-multipart
+langchain
+langchain-core
+langchain-google-vertexai

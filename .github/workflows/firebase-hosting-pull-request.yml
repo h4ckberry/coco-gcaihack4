@@ -5,7 +5,7 @@ name: Deploy to Firebase Hosting on PR
 on:
   pull_request:
     paths:
-      - "src/frontend/**"
+      - "frontend/**"
 permissions:
   checks: write
   contents: read
@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./src/frontend
+        working-directory: ./frontend
     steps:
       - uses: actions/checkout@v4
       - run: npm ci && npm run build
@@ -25,6 +25,6 @@ jobs:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AI_COCO }}
           projectId: ai-coco
-          entryPoint: ./src/frontend
+          entryPoint: ./frontend
         env:
           FIREBASE_CLI_EXPERIMENTS: webframeworks
