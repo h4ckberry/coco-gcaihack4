@@ -2,7 +2,7 @@ import functions_framework
 from google.cloud import storage
 from PIL import Image
 import numpy as np
-# from skimage.metrics import structural_similarity as ssim
+from skimage.metrics import structural_similarity as ssim
 import io
 import requests
 import google.auth.transport.requests
