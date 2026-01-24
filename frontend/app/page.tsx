@@ -90,9 +90,6 @@ export default function Home() {
 
           try {
             // Create high-quality snapshot from the video element
-            // We can reuse the video element to draw to a larger canvas or just use the current canvas if sufficient.
-            // Let's create a temporary high-res canvas or just use the stream size.
-
             const uploadCanvas = document.createElement('canvas');
             uploadCanvas.width = video.videoWidth;
             uploadCanvas.height = video.videoHeight;
@@ -151,6 +148,9 @@ export default function Home() {
   return (
     <main className="min-h-screen w-full flex flex-col relative bg-black">
       {/* Hidden Canvas for processing */}
+      <canvas ref={canvasRef} width={ANALYSIS_WIDTH} height={240} className="hidden" />
+
+      {/* Main Visuals (Original UI) */}
       <canvas ref={canvasRef} width={ANALYSIS_WIDTH} height={240} className="hidden" />
 
       {/* Main Visuals (Original UI) */}
