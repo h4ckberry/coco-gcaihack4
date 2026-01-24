@@ -1,7 +1,0 @@
-functions-framework==3.*
-google-cloud-storage
-Pillow
-scikit-image
-numpy
-requests
-google-auth
