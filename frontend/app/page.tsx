@@ -4,83 +4,199 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
 import mainVisual01 from './assets/images/dammy01.png';
 import mainVisual02 from './assets/images/dammy02.png';
-import Link from 'next/link';
-import dynamic from 'next/dynamic';
-import type { WebcamProps } from 'react-webcam';
-import type ReactWebcam from 'react-webcam';
-
 import { storage } from '../lib/firebase';
 import { ref, uploadString } from 'firebase/storage';
+import { compareFrames } from '../utils/imageDiff';
+// removed incorrect d.ts import
 
-const Webcam = dynamic<Partial<WebcamProps> & React.RefAttributes<ReactWebcam>>(() => import('react-webcam').then((mod) => mod.default as unknown as React.ComponentType<Partial<WebcamProps> & React.RefAttributes<ReactWebcam>>), {
-  ssr: false,
-});
+const CAPTURE_INTERVAL_MS = 10000; // 10 seconds
+const DIFF_THRESHOLD_PERCENT = 10;
+const ANALYSIS_WIDTH = 320;
 
 export default function Home() {
-  const webcamRef = useRef<ReactWebcam>(null);
-  const [isBroadcasting, setIsBroadcasting] = useState(true);
+  const [isMonitoring, setIsMonitoring] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("Standby");
 
-  const captureAndSend = useCallback(async () => {
-    if (webcamRef.current && isBroadcasting) {
-      const imageSrc = webcamRef.current.getScreenshot();
-      if (imageSrc) {
-        try {
-          const storageRef = ref(storage, 'camera-feed/latest.jpg');
-          // imageSrc is a base64 data URL (data:image/jpeg;base64,...)
-          await uploadString(storageRef, imageSrc, 'data_url');
-        } catch (error) {
-          console.error("Failed to upload frame", error);
+  const videoRef = useRef<HTMLVideoElement | null>(null); // Headless video element
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const prevFrameDataRef = useRef<ImageData | null>(null);
+
+  // Initialize Camera (Headless Video Element)
+  useEffect(() => {
+    const startCamera = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "environment",
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          }
+        });
+
+        // Create an invisible video element in memory
+        const video = document.createElement('video');
+        video.srcObject = stream;
+        video.playsInline = true;
+        video.autoplay = true;
+        video.muted = true;
+
+        // Wait for video to be ready
+        await new Promise((resolve) => {
+          video.onloadedmetadata = () => {
+            video.play().then(resolve);
+          };
+        });
+
+        videoRef.current = video;
+        console.log("Camera initialized (Headless Video Element)");
+      } catch (err) {
+        console.error("Camera init error:", err);
+        setStatusMessage("Camera Error");
+      }
+    };
+
+    startCamera();
+
+    return () => {
+      // Cleanup stream
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
+  const processFrame = useCallback(async () => {
+    if (!videoRef.current || !canvasRef.current || !isMonitoring) return;
+
+    try {
+      const video = videoRef.current;
+      if (video.readyState < 2) return; // Not enough data
+
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      // Draw video frame to low-res canvas
+      ctx.drawImage(video, 0, 0, ANALYSIS_WIDTH, 240);
+      const currentFrameData = ctx.getImageData(0, 0, ANALYSIS_WIDTH, 240);
+
+      if (prevFrameDataRef.current) {
+        const diff = compareFrames(prevFrameDataRef.current, currentFrameData);
+
+        if (diff > DIFF_THRESHOLD_PERCENT) {
+          console.log(`Diff ${diff.toFixed(1)}% > Threshold. Uploading...`);
+          setStatusMessage(`Uploading... (${diff.toFixed(1)}%)`);
+
+          try {
+            // Create high-quality snapshot from the video element
+            // We can reuse the video element to draw to a larger canvas or just use the current canvas if sufficient.
+            // Let's create a temporary high-res canvas or just use the stream size.
+
+            const uploadCanvas = document.createElement('canvas');
+            uploadCanvas.width = video.videoWidth;
+            uploadCanvas.height = video.videoHeight;
+            const uCtx = uploadCanvas.getContext('2d');
+
+            if (uCtx) {
+              uCtx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+              const base64data = uploadCanvas.toDataURL('image/jpeg', 0.8);
+
+              // 1. Latest
+              const latestRef = ref(storage, 'camera-feed/latest.jpg');
+              await uploadString(latestRef, base64data, 'data_url');
+
+              // 2. History
+              const nowObj = new Date();
+              const YYYY = nowObj.getFullYear();
+              const MM = String(nowObj.getMonth() + 1).padStart(2, '0');
+              const DD = String(nowObj.getDate()).padStart(2, '0');
+              const HH = String(nowObj.getHours()).padStart(2, '0');
+              const mm = String(nowObj.getMinutes()).padStart(2, '0');
+              const ss = String(nowObj.getSeconds()).padStart(2, '0');
+              const filename = `${YYYY}${MM}${DD}_${HH}${mm}${ss}.jpg`;
+
+              const historyRef = ref(storage, `camera-feed/history/${filename}`);
+              await uploadString(historyRef, base64data, 'data_url');
+              setStatusMessage("Monitoring (Uploaded)");
+            }
+          } catch (e) {
+            console.error("Snapshot error", e);
+          }
+
+        } else {
+          console.log(`Diff ${diff.toFixed(1)}% (No upload)`);
+          setStatusMessage("Monitoring");
         }
       }
+
+      prevFrameDataRef.current = currentFrameData;
+
+    } catch (err) {
+      console.error("Frame process error:", err);
     }
-  }, [isBroadcasting]);
+  }, [isMonitoring]);
 
   useEffect(() => {
-    const interval = setInterval(captureAndSend, 500); // Send frame every 500ms
+    let interval: NodeJS.Timeout;
+    if (isMonitoring) {
+      interval = setInterval(processFrame, CAPTURE_INTERVAL_MS);
+      processFrame(); // Run immediately
+    } else {
+      setStatusMessage("Standby");
+    }
     return () => clearInterval(interval);
-  }, [captureAndSend]);
+  }, [isMonitoring, processFrame]);
 
   return (
-    <main className="min-h-screen w-full flex flex-col bg-black relative">
-      {/* Hidden Webcam - Moved off-screen to preserve render resolution */}
-      <div className="fixed top-[-10000px] left-[-10000px]">
-         <Webcam
-            audio={false}
-            ref={webcamRef}
-            screenshotFormat="image/jpeg"
-            screenshotQuality={1}
-            width={1280}
-            height={720}
-            videoConstraints={{ 
-                facingMode: "user",
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
-            }}
-         />
-      </div>
+    <main className="min-h-screen w-full flex flex-col relative bg-black">
+      {/* Hidden Canvas for processing */}
+      <canvas ref={canvasRef} width={ANALYSIS_WIDTH} height={240} className="hidden" />
 
+      {/* Main Visuals (Original UI) */}
       <div className="w-full relative">
-        <Image 
-          src={mainVisual01} 
-          alt="Character 01" 
+        <Image
+          src={mainVisual01}
+          alt="Character 01"
           className="w-full h-auto block"
-          priority 
+          priority
         />
       </div>
 
       <div className="w-full relative">
-        <Image 
-          src={mainVisual02} 
-          alt="Character 02" 
-          className="w-full h-auto block" 
+        <Image
+          src={mainVisual02}
+          alt="Character 02"
+          className="w-full h-auto block"
         />
       </div>
-      
-      {/* Admin Link - Overlay */}
-      <div className="absolute bottom-4 right-4 z-10 opacity-50 hover:opacity-100">
-        <Link href="/admin" className="text-white text-xs underline">
-          Admin
-        </Link>
+
+      {/* Floating Action Button */}
+      <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end gap-2">
+        <div className="bg-black/60 text-white text-xs px-2 py-1 rounded backdrop-blur-sm">
+          {statusMessage}
+        </div>
+        <button
+          onClick={() => setIsMonitoring(!isMonitoring)}
+          className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all transform hover:scale-105 active:scale-95 ${isMonitoring
+            ? 'bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.6)] animate-pulse'
+            : 'bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)]'
+            }`}
+        >
+          {isMonitoring ? (
+            // Stop Icon
+            <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H9a1 1 0 01-1-1v-4z" />
+            </svg>
+          ) : (
+            // Play/Camera Icon
+            <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          )}
+        </button>
       </div>
     </main>
   );
