@@ -1,0 +1,18 @@
+# General
+.DS_Store
+*.log
+
+# Backend
+backend/__pycache__/
+backend/*.pyc
+backend/.env
+backend/serviceAccountKey.json
+backend/venv/
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/.env
+frontend/.env.local
+frontend/out/
+frontend/build/
