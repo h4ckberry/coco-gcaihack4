@@ -45,4 +45,4 @@ def resize_image(cloud_event):
         # エラーをログに出すが、システムには「正常終了」として報告する
         print(f"Error occurred: {e}")
         print("Stopping retry loop by returning success status.")
-        return "Failed but stopped"  # ← ここで値を返すと再試行されなくなる
+        return "Failed but stopped"
