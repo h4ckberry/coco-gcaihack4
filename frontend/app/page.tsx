@@ -27,7 +27,7 @@ export default function Home() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: "environment",
+            facingMode: "user",
             width: { ideal: 1920 },
             height: { ideal: 1080 }
           }
