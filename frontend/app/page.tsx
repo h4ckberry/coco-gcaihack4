@@ -21,7 +21,7 @@ export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const prevFrameDataRef = useRef<ImageData | null>(null);
 
-  // Initialize Camera (Headless Video Element)
+  // Initialize Camera (Invisible Video Element)
   useEffect(() => {
     const startCamera = async () => {
       try {
@@ -33,22 +33,15 @@ export default function Home() {
           }
         });
 
-        // Create an invisible video element in memory
-        const video = document.createElement('video');
-        video.srcObject = stream;
-        video.playsInline = true;
-        video.autoplay = true;
-        video.muted = true;
-
-        // Wait for video to be ready
-        await new Promise((resolve) => {
-          video.onloadedmetadata = () => {
-            video.play().then(resolve);
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          // Wait for metadata to be loaded to ensure video size is known
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current?.play().catch(e => console.error("Play error:", e));
           };
-        });
+        }
 
-        videoRef.current = video;
-        console.log("Camera initialized (Headless Video Element)");
+        console.log("Camera initialized (Invisible DOM Element)");
       } catch (err) {
         console.error("Camera init error:", err);
         setStatusMessage("Camera Error");
@@ -71,7 +64,12 @@ export default function Home() {
 
     try {
       const video = videoRef.current;
-      if (video.readyState < 2) return; // Not enough data
+      // Check if video is actually playing and has data
+      if (video.readyState < 2 || video.paused) {
+        // Try to play if paused (sometimes needed on mobile wake)
+        if (video.paused) video.play().catch(e => console.error("Resume error:", e));
+        return;
+      }
 
       const canvas = canvasRef.current;
       const ctx = canvas.getContext('2d');
@@ -147,6 +145,15 @@ export default function Home() {
 
   return (
     <main className="min-h-screen w-full flex flex-col relative bg-black">
+      {/* Invisible Video Element for Mobile Compatibility */}
+      <video
+        ref={videoRef}
+        className="absolute top-0 left-0 w-1 h-1 opacity-0 pointer-events-none"
+        playsInline
+        autoPlay
+        muted
+      />
+
       {/* Hidden Canvas for processing */}
       <canvas ref={canvasRef} width={ANALYSIS_WIDTH} height={240} className="hidden" />
 
