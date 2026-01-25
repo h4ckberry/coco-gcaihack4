@@ -1,15 +1,21 @@
 {
   "mcpServers": {
-    "github-remote": {
-      "httpUrl": "https://api.githubcopilot.com/mcp/",
-      "headers": {
-        "Authorization": "Bearer <YOUR_GITHUB_TOKEN_HERE>"
-      }
-    },
     "blender": {
       "command": "uvx",
       "args": [
         "blender-mcp"
+      ]
+    },
+    "adk-docs-mcp": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "mcpdoc",
+        "mcpdoc",
+        "--urls",
+        "AgentDevelopmentKit:https://google.github.io/adk-docs/llms.txt",
+        "--transport",
+        "stdio"
       ]
     }
   }
