@@ -15,7 +15,20 @@ const firebaseConfig = {
 
 // Initialize Firebase (Singleton pattern)
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-const storage = getStorage(app);
+
+if (!process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET) {
+  console.error(
+    "Firebase Storage Bucket is missing from environment variables! " +
+    "Check your .env.local file for NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET."
+  );
+}
+
+// Initialize Storage with explicit bucket URL
+// This fixes the "No default bucket found" error if the default app config is missing it
+const storage = getStorage(
+  app,
+  process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+);
 const db = getFirestore(app);
 
 export { app, storage, db };
