@@ -33,3 +33,4 @@ env/
 
 # サンプルファイル除外
 backend-services/cloud-run/sample_agent
+task.md
