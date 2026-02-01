@@ -1,122 +1,68 @@
-# my-agent
+# CoCo Agent (Vertex AI Backend)
+このディレクトリは、CoCoエージェントのVertex AI Agent Engineバックエンドサービスを管理します。
 
-Simple ReAct agent
-Agent generated with [`googleCloudPlatform/agent-starter-pack`](https://github.com/GoogleCloudPlatform/agent-starter-pack) version `0.32.0`
+## 🏗️ アーキテクチャ構成
 
-## Project Structure
+本プロジェクトは **Google Agent Development Kit (ADK)** をベースに構築されていますが、Vertex AIへのデプロイに関して独自の構成を採用しています。
+
+### エージェント構成
+以下の2つのエージェントが独立した Agent Engine インスタンスとしてデプロイされます。
+
+1. **Orchestrator Agent** (`app.agent_orchestrator`)
+   - ユーザーからの自然言語クエリを受け付け、適切なサブエージェント（Monitor, Explorer, Reasoner）に振り分けるルーター役です。
+   - ユーザーへの直接応答も行います。
+
+2. **Monitor Agent** (`app.agent_monitor`)
+   - カメラ映像の取得や画像を処理するための専門エージェントです。
+   - Cloud Storage と連携して画像URIを取得します。
+
+### コード構造
+Vertex AIのAgent Engineは `app` ディレクトリ全体を1つのパッケージとして認識します。
 
 ```
-my-agent/
-├── app/         # Core agent code
-│   ├── agent.py               # Main agent logic
-│   ├── agent_engine_app.py    # Agent Engine application logic
-│   └── app_utils/             # App utilities and helpers
-├── .github/                   # CI/CD pipeline configurations for GitHub Actions
-├── deployment/                # Infrastructure and deployment scripts
-├── notebooks/                 # Jupyter notebooks for prototyping and evaluation
-├── tests/                     # Unit, integration, and load tests
-├── GEMINI.md                  # AI-assisted development guide
-├── Makefile                   # Development commands
-└── pyproject.toml             # Project dependencies
+vertexai/
+├── app/
+│   ├── __init__.py             # appパッケージ定義
+│   ├── settings.py             # 環境変数定義 (Pydantic Settings)
+│   ├── agent_orchestrator.py   # Orchestratorのエントリーポイント
+│   ├── agent_monitor.py        # Monitorのエントリーポイント
+│   ├── coco_agent/             # エージェントの実装本体
+│   └── app_utils/              # ユーティリティ
+├── deploy.py                   # 🚀 カスタムデプロイスクリプト (重要)
+└── pyproject.toml              # 依存ライブラリ定義
 ```
 
-> 💡 **Tip:** Use [Gemini CLI](https://github.com/google-gemini/gemini-cli) for AI-assisted development - project context is pre-configured in `GEMINI.md`.
+---
 
-## Requirements
+## 🚀 デプロイ方法
 
-Before you begin, ensure you have:
-- **uv**: Python package manager (used for all dependency management in this project) - [Install](https://docs.astral.sh/uv/getting-started/installation/) ([add packages](https://docs.astral.sh/uv/concepts/dependencies/) with `uv add <package>`)
-- **Google Cloud SDK**: For GCP services - [Install](https://cloud.google.com/sdk/docs/install)
-- **Terraform**: For infrastructure deployment - [Install](https://developer.hashicorp.com/terraform/downloads)
-- **make**: Build automation tool - [Install](https://www.gnu.org/software/make/) (pre-installed on most Unix-based systems)
+本プロジェクトでは `make deploy` ではなく、**`deploy.py`** を使用してデプロイします。
+このスクリプトは以下の処理を自動化します：
 
+1. `requirements.txt` の自動生成（`uv export` 使用）
+2. 生成した `requirements.txt` を `app/` ディレクトリ内に配置（これがないとクラウド側でライブラリがインストールされません）
+3. `Orchestrator Agent` と `Monitor Agent` を順次デプロイ
 
-## Quick Start
-
-Install required packages and launch the local development environment:
+### 実行コマンド
 
 ```bash
-make install && make playground
+# 仮想環境内で実行することを推奨
+uv run python deploy.py
 ```
-> **📊 Observability Note:** Agent telemetry (Cloud Trace) is always enabled. Prompt-response logging (GCS, BigQuery, Cloud Logging) is **disabled** locally, **enabled by default** in deployed environments (metadata only - no prompts/responses). See [Monitoring and Observability](#monitoring-and-observability) for details.
 
-## Commands
+> **Note:**
+> 初回実行時は、Agent Engineの作成に 3〜5分 程度かかります。
+> 2回目以降は、同名のインスタンスがあれば「更新」が行われます（冪等性担保）。
 
-| Command              | Description                                                                                 |
-| -------------------- | ------------------------------------------------------------------------------------------- |
-| `make install`       | Install dependencies using uv                                                               |
-| `make playground`    | Launch local development environment                                                        |
-| `make lint`          | Run code quality checks                                                                     |
-| `make test`          | Run unit and integration tests                                                              |
-| `make deploy`        | Deploy agent to Agent Engine                                                                |
-| `make register-gemini-enterprise` | Register deployed agent to Gemini Enterprise                                  |
-| `make setup-dev-env` | Set up development environment resources using Terraform                                   |
+---
 
-For full command options and usage, refer to the [Makefile](Makefile).
-
-
-## Usage
-
-This template follows a "bring your own agent" approach - you focus on your business logic, and the template handles everything else (UI, infrastructure, deployment, monitoring).
-1. **Prototype:** Build your Generative AI Agent using the intro notebooks in `notebooks/` for guidance. Use Vertex AI Evaluation to assess performance.
-2. **Integrate:** Import your agent into the app by editing `app/agent.py`.
-3. **Test:** Explore your agent functionality using the local playground with `make playground`. The playground automatically reloads your agent on code changes.
-4. **Deploy:** Set up and initiate the CI/CD pipelines, customizing tests as necessary. Refer to the [deployment section](#deployment) for comprehensive instructions. For streamlined infrastructure deployment, simply run `uvx agent-starter-pack setup-cicd`. Check out the [`agent-starter-pack setup-cicd` CLI command](https://googlecloudplatform.github.io/agent-starter-pack/cli/setup_cicd.html). Currently supports GitHub with both Google Cloud Build and GitHub Actions as CI/CD runners.
-5. **Monitor:** Track performance and gather insights using BigQuery telemetry data, Cloud Logging, and Cloud Trace to iterate on your application.
-
-The project includes a `GEMINI.md` file that provides context for AI tools like Gemini CLI when asking questions about your template.
-
-
-## Deployment
-
-> **Note:** For a streamlined one-command deployment of the entire CI/CD pipeline and infrastructure using Terraform, you can use the [`agent-starter-pack setup-cicd` CLI command](https://googlecloudplatform.github.io/agent-starter-pack/cli/setup_cicd.html). Currently supports GitHub with both Google Cloud Build and GitHub Actions as CI/CD runners.
-
-### Dev Environment
-
-You can test deployment towards a Dev Environment using the following command:
+## 📦 開発環境セットアップ
 
 ```bash
-gcloud config set project <your-dev-project-id>
-make deploy
+# 依存関係のインストール
+uv sync
+
+# 環境変数の設定 (.env)
+cp .env.example .env
+# 必要な変数を記入: PROJECT_ID, GOOGLE_GENAI_USE_VERTEXAI=1 など
 ```
-
-
-The repository includes a Terraform configuration for the setup of the Dev Google Cloud project.
-See [deployment/README.md](deployment/README.md) for instructions.
-
-### Production Deployment
-
-The repository includes a Terraform configuration for the setup of a production Google Cloud project. Refer to [deployment/README.md](deployment/README.md) for detailed instructions on how to deploy the infrastructure and application.
-
-## Monitoring and Observability
-
-The application provides two levels of observability:
-
-**1. Agent Telemetry Events (Always Enabled)**
-- OpenTelemetry traces and spans exported to **Cloud Trace**
-- Tracks agent execution, latency, and system metrics
-
-**2. Prompt-Response Logging (Configurable)**
-- GenAI instrumentation captures LLM interactions (tokens, model, timing)
-- Exported to **Google Cloud Storage** (JSONL), **BigQuery** (external tables), and **Cloud Logging** (dedicated bucket)
-
-| Environment | Prompt-Response Logging |
-|-------------|-------------------------|
-| **Local Development** (`make playground`) | ❌ Disabled by default |
-| **Deployed Environments** (via Terraform) | ✅ **Enabled by default** (privacy-preserving: metadata only, no prompts/responses) |
-
-**To enable locally:** Set `LOGS_BUCKET_NAME` and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT`.
-
-**To disable in deployments:** Edit Terraform config to set `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=false`.
-
-See the [observability guide](https://googlecloudplatform.github.io/agent-starter-pack/guide/observability.html) for detailed instructions, example queries, and visualization options.
-
-## Keeping Up-to-Date
-
-To upgrade this project to the latest agent-starter-pack version:
-
-```bash
-uvx agent-starter-pack upgrade
-```
-
-This intelligently merges updates while preserving your customizations. Use `--dry-run` to preview changes first. See the [upgrade CLI reference](https://googlecloudplatform.github.io/agent-starter-pack/cli/upgrade.html) for details.

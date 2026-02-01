@@ -1,4 +1,4 @@
-from google.adk.agents.llm_agent import Agent
+from google.adk.agents import Agent
 from ..tools.storage_tools import get_image_uri_from_storage
 
 # Monitor Agent

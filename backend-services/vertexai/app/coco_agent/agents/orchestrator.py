@@ -1,4 +1,4 @@
-from google.adk.agents.llm_agent import Agent
+from google.adk.agents import Agent
 
 # Placeholder for Orchestrator Agent
 # This agent will act as the router for user queries.

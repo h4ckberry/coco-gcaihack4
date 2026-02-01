@@ -8,9 +8,10 @@ from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
 from google.cloud import logging as google_cloud_logging
 from vertexai.agent_engines.templates.adk import AdkApp
 
-from app.app_utils.telemetry import setup_telemetry
-from app.app_utils.typing import Feedback
-from app.coco_agent.agents.orchestrator import orchestrator_agent
+from .app_utils.telemetry import setup_telemetry
+from .app_utils.typing import Feedback
+from .coco_agent.agents.orchestrator import orchestrator_agent
+from google.adk.apps import App
 
 # Load environment variables from .env file at runtime
 load_dotenv()
@@ -44,8 +45,10 @@ gemini_location = os.environ.get("GOOGLE_CLOUD_LOCATION")
 logs_bucket_name = os.environ.get("LOGS_BUCKET_NAME")
 
 # Wrap Orchestrator Agent
+orchestrator_app = App(root_agent=orchestrator_agent, name="orchestrator_agent")
+
 agent_engine = AgentEngineApp(
-    app=orchestrator_agent,
+    app=orchestrator_app,
     artifact_service_builder=lambda: GcsArtifactService(bucket_name=logs_bucket_name)
     if logs_bucket_name
     else InMemoryArtifactService(),

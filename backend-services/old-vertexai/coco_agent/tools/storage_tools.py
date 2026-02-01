@@ -1,4 +1,4 @@
-from ...settings import get_settings
+from ..settings import get_settings
 
 def get_image_uri_from_storage(image_id: str) -> str:
     """
