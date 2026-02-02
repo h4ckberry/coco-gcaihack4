@@ -1,4 +1,4 @@
-from ...settings import get_settings
+
 
 def get_image_uri_from_storage(image_id: str) -> str:
     """
@@ -13,6 +13,7 @@ def get_image_uri_from_storage(image_id: str) -> str:
              例: "gs://ai-coco.firebasestorage.app/20260124_100000.jpg"
     """
     # 関数内で設定を読み込む（Lazy Loading）
+    from app.settings import get_settings
     settings = get_settings()
     bucket_name = settings.FIREBASE_STORAGE_BUCKET
 
