@@ -1,9 +1,7 @@
 'use client';
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import Image from 'next/image';
-import mainVisual01 from './assets/images/dammy01.png';
-import mainVisual02 from './assets/images/dammy02.png';
+import AgentAvatar, { AgentHeadState, AgentMode, AgentBodyAction } from '../components/AgentAvatar';
 import { storage } from '../lib/firebase';
 import { ref, uploadString } from 'firebase/storage';
 import { compareFrames } from '../utils/imageDiff';
@@ -16,6 +14,11 @@ const ANALYSIS_WIDTH = 320;
 export default function Home() {
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Standby");
+
+  // Avatar State (Debug/Demo)
+  const [debugHeadState, setDebugHeadState] = useState<AgentHeadState>('Idle');
+  const [debugMode, setDebugMode] = useState<AgentMode>('Default');
+  const [debugBodyAction, setDebugBodyAction] = useState<AgentBodyAction>('Idle');
 
   const videoRef = useRef<HTMLVideoElement | null>(null); // Headless video element
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -144,7 +147,7 @@ export default function Home() {
   }, [isMonitoring, processFrame]);
 
   return (
-    <main className="min-h-screen w-full flex flex-col relative bg-black">
+    <main className="h-screen w-screen relative bg-black overflow-hidden">
       {/* Invisible Video Element for Mobile Compatibility */}
       <video
         ref={videoRef}
@@ -157,25 +160,61 @@ export default function Home() {
       {/* Hidden Canvas for processing */}
       <canvas ref={canvasRef} width={ANALYSIS_WIDTH} height={240} className="hidden" />
 
-      {/* Main Visuals (Original UI) */}
-      <canvas ref={canvasRef} width={ANALYSIS_WIDTH} height={240} className="hidden" />
-
-      {/* Main Visuals (Original UI) */}
-      <div className="w-full relative">
-        <Image
-          src={mainVisual01}
-          alt="Character 01"
-          className="w-full h-auto block"
-          priority
+      {/* Avatar Display - Full Screen */}
+      <div className="absolute inset-0 w-full h-full z-0">
+        <AgentAvatar
+          headState={debugHeadState}
+          mode={debugMode}
+          bodyAction={debugBodyAction}
+          className="w-full h-full"
         />
       </div>
 
-      <div className="w-full relative">
-        <Image
-          src={mainVisual02}
-          alt="Character 02"
-          className="w-full h-auto block"
-        />
+      {/* Debug Controls (Temporary for verification) */}
+      <div className="absolute bottom-4 left-4 z-50 bg-black/80 p-4 rounded text-white text-xs space-y-2 max-w-[200px]">
+        <h3 className="font-bold border-b border-gray-600 pb-1 mb-2">Avatar Debug</h3>
+
+        <div>
+          <label className="block text-gray-400 mb-1">Head State</label>
+          <select
+            value={debugHeadState}
+            onChange={(e) => setDebugHeadState(e.target.value as any)}
+            className="w-full bg-gray-700 rounded px-2 py-1"
+          >
+            <option value="Idle">Idle</option>
+            <option value="Listening">Listening</option>
+            <option value="Thinking">Thinking</option>
+            <option value="Found">Found</option>
+            <option value="Error">Error</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-gray-400 mb-1">Mode</label>
+          <select
+            value={debugMode}
+            onChange={(e) => setDebugMode(e.target.value as any)}
+            className="w-full bg-gray-700 rounded px-2 py-1"
+          >
+            <option value="Default">Default</option>
+            <option value="Monitoring">Monitoring</option>
+            <option value="Inference">Inference</option>
+            <option value="Search">Search</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-gray-400 mb-1">Body Action</label>
+          <select
+            value={debugBodyAction}
+            onChange={(e) => setDebugBodyAction(e.target.value as any)}
+            className="w-full bg-gray-700 rounded px-2 py-1"
+          >
+            <option value="Idle">Idle (Use Mode)</option>
+            <option value="Waving">Waving</option>
+            <option value="Happy">Happy</option>
+          </select>
+        </div>
       </div>
 
       {/* Floating Action Button */}
@@ -184,7 +223,16 @@ export default function Home() {
           {statusMessage}
         </div>
         <button
-          onClick={() => setIsMonitoring(!isMonitoring)}
+          onClick={() => {
+            const nextMonitoring = !isMonitoring;
+            setIsMonitoring(nextMonitoring);
+            // Auto-switch avatar mode for demo
+            if (nextMonitoring) {
+              setDebugMode('Monitoring');
+            } else {
+              setDebugMode('Default');
+            }
+          }}
           className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all transform hover:scale-105 active:scale-95 ${isMonitoring
             ? 'bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.6)] animate-pulse'
             : 'bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)]'
