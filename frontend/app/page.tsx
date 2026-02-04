@@ -6,11 +6,13 @@ import mainVisual01 from './assets/images/dammy01.png';
 import mainVisual02 from './assets/images/dammy02.png';
 import { storage } from '../lib/firebase';
 import { ref, uploadString } from 'firebase/storage';
-import { compareFrames } from '../utils/imageDiff';
+import { compareFrames, calculateBrightness } from '../utils/imageDiff';
+import { useSpeechRecognition } from '../utils/speech';
 // removed incorrect d.ts import
 
 const CAPTURE_INTERVAL_MS = 10000; // 10 seconds
 const DIFF_THRESHOLD_PERCENT = 10;
+const DARK_THRESHOLD = 30; // Brightness level to trigger search
 const ANALYSIS_WIDTH = 320;
 
 export default function Home() {
@@ -20,6 +22,19 @@ export default function Home() {
   const videoRef = useRef<HTMLVideoElement | null>(null); // Headless video element
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const prevFrameDataRef = useRef<ImageData | null>(null);
+
+  const { isListening, transcript, startListening, stopListening, setTranscript } = useSpeechRecognition();
+
+  // Handle transcript = User replied
+  useEffect(() => {
+    if (transcript) {
+      console.log("User said:", transcript);
+      // Send to backend
+      handleSearch(transcript);
+      // Clear transcript to avoid double-send (depends on hook impl, often good to clear)
+      setTranscript('');
+    }
+  }, [transcript]);
 
   // Initialize Camera (Invisible Video Element)
   useEffect(() => {
@@ -79,132 +94,181 @@ export default function Home() {
       ctx.drawImage(video, 0, 0, ANALYSIS_WIDTH, 240);
       const currentFrameData = ctx.getImageData(0, 0, ANALYSIS_WIDTH, 240);
 
-      if (prevFrameDataRef.current) {
-        const diff = compareFrames(prevFrameDataRef.current, currentFrameData);
+      const brightness = calculateBrightness(currentFrameData);
 
-        if (diff > DIFF_THRESHOLD_PERCENT) {
-          console.log(`Diff ${diff.toFixed(1)}% > Threshold. Uploading...`);
-          setStatusMessage(`Uploading... (${diff.toFixed(1)}%)`);
+      try {
+        // Create high-quality snapshot from the video element
+        const uploadCanvas = document.createElement('canvas');
+        uploadCanvas.width = video.videoWidth;
+        uploadCanvas.height = video.videoHeight;
+        const uCtx = uploadCanvas.getContext('2d');
 
-          try {
-            // Create high-quality snapshot from the video element
-            const uploadCanvas = document.createElement('canvas');
-            uploadCanvas.width = video.videoWidth;
-            uploadCanvas.height = video.videoHeight;
-            const uCtx = uploadCanvas.getContext('2d');
+        if (uCtx) {
+          uCtx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+          const base64data = uploadCanvas.toDataURL('image/jpeg', 0.8);
 
-            if (uCtx) {
-              uCtx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-              const base64data = uploadCanvas.toDataURL('image/jpeg', 0.8);
+          // 1. Latest
+          const latestRef = ref(storage, 'camera-feed/latest.jpg');
+          await uploadString(latestRef, base64data, 'data_url');
 
-              // 1. Latest
-              const latestRef = ref(storage, 'camera-feed/latest.jpg');
-              await uploadString(latestRef, base64data, 'data_url');
+          // 2. History
+          const nowObj = new Date();
+          const YYYY = nowObj.getFullYear();
+          const MM = String(nowObj.getMonth() + 1).padStart(2, '0');
+          const DD = String(nowObj.getDate()).padStart(2, '0');
+          const HH = String(nowObj.getHours()).padStart(2, '0');
+          const mm = String(nowObj.getMinutes()).padStart(2, '0');
+          const ss = String(nowObj.getSeconds()).padStart(2, '0');
+          const filename = `${YYYY}${MM}${DD}_${HH}${mm}${ss}.jpg`;
 
-              // 2. History
-              const nowObj = new Date();
-              const YYYY = nowObj.getFullYear();
-              const MM = String(nowObj.getMonth() + 1).padStart(2, '0');
-              const DD = String(nowObj.getDate()).padStart(2, '0');
-              const HH = String(nowObj.getHours()).padStart(2, '0');
-              const mm = String(nowObj.getMinutes()).padStart(2, '0');
-              const ss = String(nowObj.getSeconds()).padStart(2, '0');
-              const filename = `${YYYY}${MM}${DD}_${HH}${mm}${ss}.jpg`;
-
-              const historyRef = ref(storage, `camera-feed/history/${filename}`);
-              await uploadString(historyRef, base64data, 'data_url');
-              setStatusMessage("Monitoring (Uploaded)");
-            }
-          } catch (e) {
-            console.error("Snapshot error", e);
-          }
-
-        } else {
-          console.log(`Diff ${diff.toFixed(1)}% (No upload)`);
-          setStatusMessage("Monitoring");
+          const historyRef = ref(storage, `camera-feed/history/${filename}`);
+          await uploadString(historyRef, base64data, 'data_url');
+          setStatusMessage("Monitoring (Uploaded)");
         }
+      } catch (e) {
+        console.error("Snapshot error", e);
       }
 
-      prevFrameDataRef.current = currentFrameData;
-
-    } catch (err) {
-      console.error("Frame process error:", err);
-    }
-  }, [isMonitoring]);
-
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isMonitoring) {
-      interval = setInterval(processFrame, CAPTURE_INTERVAL_MS);
-      processFrame(); // Run immediately
     } else {
-      setStatusMessage("Standby");
+      console.log(`Diff ${diff.toFixed(1)}% (No upload)`);
+      setStatusMessage("Monitoring");
     }
-    return () => clearInterval(interval);
-  }, [isMonitoring, processFrame]);
+  }
 
-  return (
-    <main className="min-h-screen w-full flex flex-col relative bg-black">
-      {/* Invisible Video Element for Mobile Compatibility */}
-      <video
-        ref={videoRef}
-        className="absolute top-0 left-0 w-1 h-1 opacity-0 pointer-events-none"
-        playsInline
-        autoPlay
-        muted
+    prevFrameDataRef.current = currentFrameData;
+
+} catch (err) {
+  console.error("Frame process error:", err);
+}
+}, [isMonitoring]);
+
+useEffect(() => {
+  let interval: NodeJS.Timeout;
+  if (isMonitoring) {
+    interval = setInterval(processFrame, CAPTURE_INTERVAL_MS);
+    processFrame(); // Run immediately
+  } else {
+    setStatusMessage("Standby");
+  }
+  return () => clearInterval(interval);
+}, [isMonitoring, processFrame]);
+
+// TTS Helper
+const playAudio = (base64Audio: string) => {
+  const audio = new Audio(`data:audio/mp3;base64,${base64Audio}`);
+  audio.onended = () => {
+    console.log("Audio ended. listening for user response...");
+    startListening();
+  };
+  audio.play().catch(e => console.error("Audio play error", e));
+};
+
+const handleSearch = async (userText: string = "Search for the object") => {
+  try {
+    // In a real scenario, we might want to send the LAST captured frame.
+    // For now, we just trigger the agent. The agent should know to look at history or ask for a new picture.
+    // Since the Orchestrator (Monitor/Explore) might want to see, we could send the current frame.
+    // But "Dark Screen" means the camera is covered! 
+    // So the Agent should probably "Wait" or "Scan History" first.
+
+    const response = await fetch('/api/monitor', { // Using monitor endpoint or a new one?
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: userText })
+      // Ideally, this trigger should just start the "Explore" session.
+      // We'll send a signal.
+    });
+
+    if (!response.ok) throw new Error("API failed");
+
+    const data = await response.json();
+    // Expecting { text: "...", audio_content: "..." }
+    // Or if using ADK standard response, we might need to parse the text for <AUDIO_CONTENT>
+
+    let text = data.text || "";
+    let audio = data.audio_content; // If explicit field
+
+    // Parse <AUDIO_CONTENT> tag from text if present (Fallback)
+    const audioMatch = text.match(/<AUDIO_CONTENT>(.*?)<\/AUDIO_CONTENT>/);
+    if (audioMatch) {
+      audio = audioMatch[1];
+      text = text.replace(audioMatch[0], "").trim();
+    }
+
+    if (audio) {
+      playAudio(audio);
+    }
+
+    setStatusMessage(text.substring(0, 20) + "...");
+
+  } catch (err) {
+    console.error("Search error:", err);
+    setStatusMessage("Search Failed");
+  }
+};
+
+return (
+  <main className="min-h-screen w-full flex flex-col relative bg-black">
+    {/* Invisible Video Element for Mobile Compatibility */}
+    <video
+      ref={videoRef}
+      className="absolute top-0 left-0 w-1 h-1 opacity-0 pointer-events-none"
+      playsInline
+      autoPlay
+      muted
+    />
+
+    {/* Hidden Canvas for processing */}
+    <canvas ref={canvasRef} width={ANALYSIS_WIDTH} height={240} className="hidden" />
+
+    {/* Main Visuals (Original UI) */}
+    <canvas ref={canvasRef} width={ANALYSIS_WIDTH} height={240} className="hidden" />
+
+    {/* Main Visuals (Original UI) */}
+    <div className="w-full relative">
+      <Image
+        src={mainVisual01}
+        alt="Character 01"
+        className="w-full h-auto block"
+        priority
       />
+    </div>
 
-      {/* Hidden Canvas for processing */}
-      <canvas ref={canvasRef} width={ANALYSIS_WIDTH} height={240} className="hidden" />
+    <div className="w-full relative">
+      <Image
+        src={mainVisual02}
+        alt="Character 02"
+        className="w-full h-auto block"
+      />
+    </div>
 
-      {/* Main Visuals (Original UI) */}
-      <canvas ref={canvasRef} width={ANALYSIS_WIDTH} height={240} className="hidden" />
-
-      {/* Main Visuals (Original UI) */}
-      <div className="w-full relative">
-        <Image
-          src={mainVisual01}
-          alt="Character 01"
-          className="w-full h-auto block"
-          priority
-        />
+    {/* Floating Action Button */}
+    <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end gap-2">
+      <div className="bg-black/60 text-white text-xs px-2 py-1 rounded backdrop-blur-sm">
+        {statusMessage}
       </div>
-
-      <div className="w-full relative">
-        <Image
-          src={mainVisual02}
-          alt="Character 02"
-          className="w-full h-auto block"
-        />
-      </div>
-
-      {/* Floating Action Button */}
-      <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end gap-2">
-        <div className="bg-black/60 text-white text-xs px-2 py-1 rounded backdrop-blur-sm">
-          {statusMessage}
-        </div>
-        <button
-          onClick={() => setIsMonitoring(!isMonitoring)}
-          className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all transform hover:scale-105 active:scale-95 ${isMonitoring
-            ? 'bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.6)] animate-pulse'
-            : 'bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)]'
-            }`}
-        >
-          {isMonitoring ? (
-            // Stop Icon
-            <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H9a1 1 0 01-1-1v-4z" />
-            </svg>
-          ) : (
-            // Play/Camera Icon
-            <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          )}
-        </button>
-      </div>
-    </main>
-  );
+      <button
+        onClick={() => setIsMonitoring(!isMonitoring)}
+        className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all transform hover:scale-105 active:scale-95 ${isMonitoring
+          ? 'bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.6)] animate-pulse'
+          : 'bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)]'
+          }`}
+      >
+        {isMonitoring ? (
+          // Stop Icon
+          <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H9a1 1 0 01-1-1v-4z" />
+          </svg>
+        ) : (
+          // Play/Camera Icon
+          <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        )}
+      </button>
+    </div>
+  </main>
+);
 }

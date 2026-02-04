@@ -34,3 +34,26 @@ export function compareFrames(
 
   return (diffPixels / totalPixels) * 100;
 }
+
+/**
+ * Calculates the average brightness of a frame.
+ * @param frameData - The ImageData of the frame.
+ * @returns Average brightness (0-255).
+ */
+export function calculateBrightness(frameData: ImageData): number {
+  if (!frameData || !frameData.data) return 0;
+
+  let totalBrightness = 0;
+  const len = frameData.data.length;
+  const totalPixels = len / 4;
+
+  for (let i = 0; i < len; i += 4) {
+    const r = frameData.data[i];
+    const g = frameData.data[i + 1];
+    const b = frameData.data[i + 2];
+    // Simple average or luminance formula. Using simple average for speed.
+    totalBrightness += (r + g + b) / 3;
+  }
+
+  return totalBrightness / totalPixels;
+}
