@@ -1,4 +1,5 @@
 from google.adk.agents import Agent
+from ..prompts.loader import load_prompt
 from .monitor import monitor_agent
 from .explorer import explorer_agent
 from .reasoner import reasoner_agent
@@ -40,17 +41,7 @@ orchestrator_agent = Agent(
     name="orchestrator",
     model="gemini-2.5-flash",
     description="Orchestrator Agent that routes user queries to specialized sub-agents.",
-    instruction=(
-        "You are the Orchestrator Agent. Your goal is to route user queries to the appropriate sub-agent.\n"
-        "Routing Rules:\n"
-        "1.  **Monitor Agent**: If the user asks about the *current* view or live feed (e.g., 'What do you see now?', 'Scan the room').\n"
-        "2.  **Explorer Agent**: If the user explicitly asks to *find* a specific object physically (e.g., 'Find the keys', 'Where is the remote?').\n"
-        "3.  **Reasoner Agent**: If the user asks for *deduction*, OR if the **Explorer Agent fails to find the object**.\n"
-        "\n"
-        "CRITICAL RULE: If the Explorer Agent searches and reports that the object is not found, you MUST immediately call the Reasoner Agent to deduce the location. Do not ask the user for permission.\n"
-        "\n"
-        "AUDIO FEEDBACK: When you have a final response for the user (from any agent), you MUST use the `generate_speech` tool to create audio for it. Pass the text message to this tool."
-    ),
+    instruction=load_prompt("orchestrator"),
     sub_agents=[monitor_agent, explorer_agent, reasoner_agent],
     tools=[generate_speech]
 )

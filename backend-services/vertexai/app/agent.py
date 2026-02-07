@@ -24,7 +24,11 @@ from google.genai import types
 import os
 import google.auth
 
-_, project_id = google.auth.default()
+try:
+    _, project_id = google.auth.default()
+except (Exception, ValueError):
+    # Fallback for local testing or when auth fails
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "local-project")
 os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
 os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
