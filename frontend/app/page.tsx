@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import AgentAvatar, { AgentHeadState, AgentMode, AgentBodyAction } from '../components/AgentAvatar';
+import AgentAvatar from '../components/AgentAvatar';
+import { useAgentState } from '../hooks/useAgentState';
 import { storage } from '../lib/firebase';
 import { ref, uploadString } from 'firebase/storage';
 import { compareFrames } from '../utils/imageDiff';
@@ -16,9 +17,12 @@ export default function Home() {
   const [statusMessage, setStatusMessage] = useState("Standby");
 
   // Avatar State (Debug/Demo)
-  const [debugHeadState, setDebugHeadState] = useState<AgentHeadState>('Idle');
-  const [debugMode, setDebugMode] = useState<AgentMode>('Default');
-  const [debugBodyAction, setDebugBodyAction] = useState<AgentBodyAction>('Idle');
+  // Frontend-Backend Integration
+  const { agentState } = useAgentState('default');
+
+  // Avatar State: Use Firestore data, fallback to local defaults if needed
+  // Note: We can still use local 'isMonitoring' to override if we want,
+  // but ideally the backend reflects the state.
 
   const videoRef = useRef<HTMLVideoElement | null>(null); // Headless video element
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -163,59 +167,23 @@ export default function Home() {
       {/* Avatar Display - Full Screen */}
       <div className="absolute inset-0 w-full h-full z-0">
         <AgentAvatar
-          headState={debugHeadState}
-          mode={debugMode}
-          bodyAction={debugBodyAction}
+          headState={agentState.headState}
+          mode={agentState.mode}
+          bodyAction={agentState.bodyAction}
           className="w-full h-full"
         />
+
+        {/* Agent Message Bubble */}
+        {agentState.message && (
+          <div className="absolute top-8 w-full flex justify-center z-10 px-4">
+            <div className="bg-white/90 text-black px-4 py-2 rounded-2xl shadow-lg max-w-xs text-center text-sm font-medium animate-bounce-in">
+              {agentState.message}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Debug Controls (Temporary for verification) */}
-      <div className="absolute bottom-4 left-4 z-50 bg-black/80 p-4 rounded text-white text-xs space-y-2 max-w-[200px]">
-        <h3 className="font-bold border-b border-gray-600 pb-1 mb-2">Avatar Debug</h3>
-
-        <div>
-          <label className="block text-gray-400 mb-1">Head State</label>
-          <select
-            value={debugHeadState}
-            onChange={(e) => setDebugHeadState(e.target.value as any)}
-            className="w-full bg-gray-700 rounded px-2 py-1"
-          >
-            <option value="Idle">Idle</option>
-            <option value="Listening">Listening</option>
-            <option value="Thinking">Thinking</option>
-            <option value="Found">Found</option>
-            <option value="Error">Error</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-gray-400 mb-1">Mode</label>
-          <select
-            value={debugMode}
-            onChange={(e) => setDebugMode(e.target.value as any)}
-            className="w-full bg-gray-700 rounded px-2 py-1"
-          >
-            <option value="Default">Default</option>
-            <option value="Monitoring">Monitoring</option>
-            <option value="Inference">Inference</option>
-            <option value="Search">Search</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-gray-400 mb-1">Body Action</label>
-          <select
-            value={debugBodyAction}
-            onChange={(e) => setDebugBodyAction(e.target.value as any)}
-            className="w-full bg-gray-700 rounded px-2 py-1"
-          >
-            <option value="Idle">Idle (Use Mode)</option>
-            <option value="Waving">Waving</option>
-            <option value="Happy">Happy</option>
-          </select>
-        </div>
-      </div>
+      {/* Debug Controls - REMOVED (Now driven by Firestore) */}
 
       {/* Floating Action Button */}
       <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end gap-2">
@@ -226,12 +194,7 @@ export default function Home() {
           onClick={() => {
             const nextMonitoring = !isMonitoring;
             setIsMonitoring(nextMonitoring);
-            // Auto-switch avatar mode for demo
-            if (nextMonitoring) {
-              setDebugMode('Monitoring');
-            } else {
-              setDebugMode('Default');
-            }
+            // State is now managed by backend
           }}
           className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all transform hover:scale-105 active:scale-95 ${isMonitoring
             ? 'bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.6)] animate-pulse'

@@ -83,6 +83,7 @@ export default function AgentAvatar({
       {/* using object-cover to fill width, object-bottom to keep neck visible */}
       <div className="relative w-full h-[40%] shrink-0 flex items-end justify-center">
         <video
+          key={headVideoSrc}
           ref={headRef}
           src={headVideoSrc}
           className="w-full h-full object-cover object-bottom pointer-events-none"
@@ -97,6 +98,7 @@ export default function AgentAvatar({
       {/* using object-cover to fill width, object-top to keep neck visible */}
       <div className="relative w-full h-[60%] shrink-0 flex items-start justify-center">
         <video
+          key={bodyVideoSrc}
           ref={bodyRef}
           src={bodyVideoSrc}
           className="w-full h-full object-cover object-top pointer-events-none"
