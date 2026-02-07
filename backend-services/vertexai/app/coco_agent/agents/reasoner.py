@@ -1,6 +1,6 @@
 from google.adk.agents.llm_agent import Agent
 from ..prompts.loader import load_prompt
-from ...tools.firestore_tools import search_logs, get_recent_context
+from ..tools.firestore_tools import search_logs, get_recent_context
 
 reasoner_agent = Agent(
     name="reasoner_agent",
