@@ -4,6 +4,7 @@ from .monitor import monitor_agent
 from .explorer import explorer_agent
 from .reasoner import reasoner_agent
 from app.app_utils.tts import synthesize_text
+from app.coco_agent.tools.calendar_tools import get_calendar_events, create_calendar_event
 
 def generate_speech(text: str) -> str:
     """
@@ -43,5 +44,5 @@ orchestrator_agent = Agent(
     description="Orchestrator Agent that routes user queries to specialized sub-agents.",
     instruction=load_prompt("orchestrator"),
     sub_agents=[monitor_agent, explorer_agent, reasoner_agent],
-    tools=[generate_speech]
+    tools=[generate_speech, get_calendar_events, create_calendar_event]
 )

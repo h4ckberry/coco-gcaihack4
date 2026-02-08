@@ -27,18 +27,21 @@ def save_monitoring_log(
         logger.info("[Mock] Saving to Firestore: " + str(detected_objects))
         return "mock_doc_id"
 
-    timestamp = datetime.datetime.now(datetime.timezone.utc)
-    doc_id = f"log_{timestamp.strftime('%Y%m%d_%H%M%S')}"
-    
+    # Generate search_labels for efficient querying
+    search_labels = [obj.get("label", "").lower() for obj in detected_objects if obj.get("label")]
+
     data = {
         "doc_id": doc_id,
-        "timestamp": timestamp.isoformat(),
-        "image_storage_path": image_storage_path,
+        "timestamp": timestamp, # Firestore handles datetime objects directly
+        "image_path": image_storage_path, # Renamed from image_storage_path as per design
+        "search_labels": search_labels, # Added for array-contains queries
+
         "motor_angle": motor_angle,
         "scan_session_id": scan_session_id,
         "is_blind_spot": False, # Placeholder logic
+
         "environment": environment,
-        "detected_objects": detected_objects
+        "detected_objects": detected_objects # Keep detailed objects
     }
 
     try:
@@ -57,7 +60,7 @@ def search_logs(query_label: str, limit: int = 5) -> List[Dict[str, Any]]:
         return []
 
     try:
-        # Note: This requires a composite index or simple query. 
+        # Note: This requires a composite index or simple query.
         # For simplicity, we might query recent logs and filter in memory if volume is low,
         # or use array-contains if we flatten the labels.
         # Here we'll fetch recent logs and filter for flexibility.
@@ -68,11 +71,13 @@ def search_logs(query_label: str, limit: int = 5) -> List[Dict[str, Any]]:
         results = []
         for doc in docs:
             data = doc.to_dict()
-            for obj in data.get("detected_objects", []):
-                if query_label.lower() in obj.get("label", "").lower():
-                    results.append(data)
-                    if len(results) >= limit:
-                        return results
+            search_labels = data.get("search_labels", [])
+
+            # Check if query_label matches any label in search_labels (partial match or exact)
+            if any(query_label.lower() in label for label in search_labels):
+                results.append(data)
+                if len(results) >= limit:
+                    return results
         return results
     except Exception as e:
         logger.error(f"Failed to search logs: {e}")
@@ -84,7 +89,7 @@ def get_recent_context(limit: int = 3) -> List[Dict[str, Any]]:
     """
     if db is None:
         return []
-    
+
     try:
         docs = db.collection("monitoring_logs").order_by(
             "timestamp", direction=firestore.Query.DESCENDING

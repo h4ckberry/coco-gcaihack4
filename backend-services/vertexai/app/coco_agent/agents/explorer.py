@@ -8,9 +8,19 @@ obniz = ObnizController()
 def rotate_to_target(angle: int) -> str:
     """
     Rotates the camera to the specified angle to face the target.
+    Args:
+        angle (int): The target angle in degrees.
     """
-    obniz.rotate(angle)
-    return f"Camera rotated to target angle: {angle}"
+    # Quantize to nearest 30 degrees as requested
+    quantized_angle = round(angle / 30) * 30
+    # Clamp to 0-180 range
+    quantized_angle = max(0, min(180, quantized_angle))
+
+    success = obniz.rotate(quantized_angle)
+    if success:
+        return f"Successfully rotated camera to target angle: {quantized_angle} (Input: {angle})"
+    else:
+        return f"Failed to rotate camera to angle: {quantized_angle}. Check connection or logs."
 
 explorer_agent = Agent(
     name="explorer_agent",
