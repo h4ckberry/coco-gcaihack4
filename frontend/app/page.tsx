@@ -6,6 +6,8 @@ import { useAgentState } from '../hooks/useAgentState';
 import { storage } from '../lib/firebase';
 import { ref, uploadString } from 'firebase/storage';
 import { compareFrames } from '../utils/imageDiff';
+import { calculateBrightness } from '../utils/imageProcessing';
+import { useSpeechRecognition } from '../utils/speech';
 // removed incorrect d.ts import
 
 const CAPTURE_INTERVAL_MS = 10000; // 10 seconds
@@ -15,18 +17,96 @@ const ANALYSIS_WIDTH = 320;
 export default function Home() {
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Standby");
+  const [sessionId, setSessionId] = useState<string | null>(null);
+
+  // New hooks
+  const { isListening, transcript, startListening, stopListening, setTranscript } = useSpeechRecognition();
 
   // Avatar State (Debug/Demo)
   // Frontend-Backend Integration
   const { agentState } = useAgentState('default');
 
-  // Avatar State: Use Firestore data, fallback to local defaults if needed
-  // Note: We can still use local 'isMonitoring' to override if we want,
-  // but ideally the backend reflects the state.
-
   const videoRef = useRef<HTMLVideoElement | null>(null); // Headless video element
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const prevFrameDataRef = useRef<ImageData | null>(null);
+
+  // Audio helper
+  const playAudio = useCallback((base64Audio: string) => {
+    try {
+      // Basic base64 cleanup if needed (though API should handle plain base64)
+      const audioSrc = `data:audio/mp3;base64,${base64Audio}`;
+      const audio = new Audio(audioSrc);
+      audio.onended = () => {
+        console.log("Audio ended. Resuming listening...");
+        startListening();
+        setStatusMessage("Listening...");
+      };
+      audio.play().catch(e => {
+        console.error("Audio play error", e);
+        // If auto-play blocked, we might need UI interaction
+        setStatusMessage("Audio Play Blocked");
+      });
+      setStatusMessage("Speaking...");
+    } catch (e) {
+      console.error("Audio setup error", e);
+    }
+  }, [startListening]);
+
+  // Handle Agent Interaction
+  const handleAgentQuery = useCallback(async (text: string) => {
+    if (!text.trim()) return;
+
+    setStatusMessage("Thinking...");
+    stopListening(); // Stop listening while processing
+
+    try {
+      const res = await fetch('/api/agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: text, session_id: sessionId }),
+      });
+
+      if (!res.ok) throw new Error("Agent API failed");
+
+      const data = await res.json();
+      console.log("Agent response:", data);
+
+      // Save session_id for future messages
+      if (data.session_id) {
+        setSessionId(data.session_id);
+      }
+
+      const responseText = data.text || "";
+      const audioContent = data.audio_content;
+
+      setStatusMessage(responseText.substring(0, 20) + "...");
+
+      if (audioContent) {
+        playAudio(audioContent);
+      } else {
+        // If no audio, just go back to listening after a moment
+        setTimeout(() => {
+          startListening();
+          setStatusMessage("Listening...");
+        }, 2000);
+      }
+
+    } catch (e) {
+      console.error("Agent query error", e);
+      setStatusMessage("Error");
+      startListening(); // Resume listening on error
+    }
+  }, [playAudio, startListening, stopListening, sessionId]);
+
+  // Effect: Handle Transcript (User finished speaking)
+  useEffect(() => {
+    if (transcript) {
+      console.log("User said:", transcript);
+      handleAgentQuery(transcript);
+      setTranscript('');
+    }
+  }, [transcript, handleAgentQuery, setTranscript]);
+
 
   // Initialize Camera (Invisible Video Element)
   useEffect(() => {
@@ -86,6 +166,16 @@ export default function Home() {
       ctx.drawImage(video, 0, 0, ANALYSIS_WIDTH, 240);
       const currentFrameData = ctx.getImageData(0, 0, ANALYSIS_WIDTH, 240);
 
+      // 1. Darkness Detection
+      const brightness = calculateBrightness(currentFrameData);
+      const DARK_THRESHOLD = 30; // Customize as needed
+      if (brightness < DARK_THRESHOLD) {
+        // console.log("Too dark:", brightness);
+        // setStatusMessage("Dark Detected");
+        // Maybe trigger a specific agent intent if persistent?
+      }
+
+      // 2. Motion/Diff Detection
       if (prevFrameDataRef.current) {
         const diff = compareFrames(prevFrameDataRef.current, currentFrameData);
 
@@ -105,7 +195,7 @@ export default function Home() {
               const base64data = uploadCanvas.toDataURL('image/jpeg', 0.8);
 
               // 1. Latest
-              const latestRef = ref(storage, 'camera-feed/latest.jpg');
+              const latestRef = ref(storage, 'latest.jpg');
               await uploadString(latestRef, base64data, 'data_url');
 
               // 2. History
@@ -118,7 +208,7 @@ export default function Home() {
               const ss = String(nowObj.getSeconds()).padStart(2, '0');
               const filename = `${YYYY}${MM}${DD}_${HH}${mm}${ss}.jpg`;
 
-              const historyRef = ref(storage, `camera-feed/history/${filename}`);
+              const historyRef = ref(storage, filename);
               await uploadString(historyRef, base64data, 'data_url');
               setStatusMessage("Monitoring (Uploaded)");
             }
@@ -127,8 +217,8 @@ export default function Home() {
           }
 
         } else {
-          console.log(`Diff ${diff.toFixed(1)}% (No upload)`);
-          setStatusMessage("Monitoring");
+          // console.log(`Diff ${diff.toFixed(1)}% (No upload)`);
+          // setStatusMessage("Monitoring");
         }
       }
 
@@ -149,6 +239,17 @@ export default function Home() {
     }
     return () => clearInterval(interval);
   }, [isMonitoring, processFrame]);
+
+  // Start Listening when monitoring starts? Or manual?
+  // Let's make the button toggle both
+  useEffect(() => {
+    if (isMonitoring) {
+      startListening();
+    } else {
+      stopListening();
+    }
+  }, [isMonitoring, startListening, stopListening]);
+
 
   return (
     <main className="h-screen w-screen relative bg-black overflow-hidden">
@@ -183,18 +284,22 @@ export default function Home() {
         )}
       </div>
 
-      {/* Debug Controls - REMOVED (Now driven by Firestore) */}
-
       {/* Floating Action Button */}
       <div className="fixed bottom-8 right-8 z-50 flex flex-col items-end gap-2">
         <div className="bg-black/60 text-white text-xs px-2 py-1 rounded backdrop-blur-sm">
           {statusMessage}
+          {isListening && <span className="ml-1 text-green-400">●</span>}
         </div>
         <button
           onClick={() => {
             const nextMonitoring = !isMonitoring;
+            // Unlock audio on first interaction (mobile autoplay policy)
+            if (nextMonitoring) {
+              const silentAudio = new Audio("data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYNAAAAAAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYNAAAAAAAAAAAAAAAAAAAA");
+              silentAudio.volume = 0.01;
+              silentAudio.play().catch(() => { /* ignore */ });
+            }
             setIsMonitoring(nextMonitoring);
-            // State is now managed by backend
           }}
           className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all transform hover:scale-105 active:scale-95 ${isMonitoring
             ? 'bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.6)] animate-pulse'
