@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import AgentAvatar from '../components/AgentAvatar';
+import AgentAvatar, { AgentHeadState, AgentBodyAction } from '../components/AgentAvatar';
 import { useAgentState } from '../hooks/useAgentState';
 import { storage } from '../lib/firebase';
 import { ref, uploadString } from 'firebase/storage';
@@ -18,6 +18,10 @@ export default function Home() {
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Standby");
   const [sessionId, setSessionId] = useState<string | null>(null);
+
+  // Avatar state (local control)
+  const [avatarHeadState, setAvatarHeadState] = useState<AgentHeadState>('Idle');
+  const [avatarBodyAction, setAvatarBodyAction] = useState<AgentBodyAction>('Waving');
 
   // New hooks
   const { isListening, transcript, startListening, stopListening, setTranscript } = useSpeechRecognition();
@@ -40,6 +44,8 @@ export default function Home() {
         console.log("Audio ended. Resuming listening...");
         startListening();
         setStatusMessage("Listening...");
+        setAvatarHeadState('Listening');
+        setAvatarBodyAction('Waving');
       };
       audio.play().catch(e => {
         console.error("Audio play error", e);
@@ -57,6 +63,8 @@ export default function Home() {
     if (!text.trim()) return;
 
     setStatusMessage("Thinking...");
+    setAvatarHeadState('Thinking');
+    setAvatarBodyAction('Idle');
     stopListening(); // Stop listening while processing
 
     try {
@@ -88,6 +96,8 @@ export default function Home() {
         setTimeout(() => {
           startListening();
           setStatusMessage("Listening...");
+          setAvatarHeadState('Listening');
+          setAvatarBodyAction('Waving');
         }, 2000);
       }
 
@@ -245,8 +255,12 @@ export default function Home() {
   useEffect(() => {
     if (isMonitoring) {
       startListening();
+      setAvatarHeadState('Listening');
+      setAvatarBodyAction('Waving');
     } else {
       stopListening();
+      setAvatarHeadState('Idle');
+      setAvatarBodyAction('Waving');
     }
   }, [isMonitoring, startListening, stopListening]);
 
@@ -268,9 +282,9 @@ export default function Home() {
       {/* Avatar Display - Full Screen */}
       <div className="absolute inset-0 w-full h-full z-0">
         <AgentAvatar
-          headState={agentState.headState}
-          mode={agentState.mode}
-          bodyAction={agentState.bodyAction}
+          headState={avatarHeadState}
+          mode="Default"
+          bodyAction={avatarBodyAction}
           className="w-full h-full"
         />
 
