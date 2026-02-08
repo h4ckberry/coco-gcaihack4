@@ -8,7 +8,6 @@ import { ref, uploadString } from 'firebase/storage';
 import { compareFrames } from '../utils/imageDiff';
 import { calculateBrightness } from '../utils/imageProcessing';
 import { useSpeechRecognition } from '../utils/speech';
-// removed incorrect d.ts import
 
 const CAPTURE_INTERVAL_MS = 10000; // 10 seconds
 const DIFF_THRESHOLD_PERCENT = 10;
@@ -34,12 +33,22 @@ export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const prevFrameDataRef = useRef<ImageData | null>(null);
 
+  // Persistent Audio Object for Mobile Compatibility
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
   // Audio helper
   const playAudio = useCallback((base64Audio: string) => {
     try {
-      // Basic base64 cleanup if needed (though API should handle plain base64)
+      // Use existing audio object if initialized (unlocked), otherwise create new
+      const audio = audioRef.current || new Audio();
+      if (!audioRef.current) {
+        audioRef.current = audio;
+      }
+
       const audioSrc = `data:audio/mp3;base64,${base64Audio}`;
-      const audio = new Audio(audioSrc);
+      audio.src = audioSrc;
+      audio.volume = 1.0; // Ensure volume is up
+
       audio.onended = () => {
         console.log("Audio ended. Resuming listening...");
         startListening();
@@ -47,14 +56,16 @@ export default function Home() {
         setAvatarHeadState('Listening');
         setAvatarBodyAction('Waving');
       };
+
       audio.play().catch(e => {
         console.error("Audio play error", e);
-        // If auto-play blocked, we might need UI interaction
-        setStatusMessage("Audio Play Blocked");
+        setStatusMessage("Audio Play Blocked (Tap screen)");
       });
+
       setStatusMessage("Speaking...");
     } catch (e) {
       console.error("Audio setup error", e);
+      setStatusMessage("Audio Error");
     }
   }, [startListening]);
 
@@ -307,12 +318,21 @@ export default function Home() {
         <button
           onClick={() => {
             const nextMonitoring = !isMonitoring;
-            // Unlock audio on first interaction (mobile autoplay policy)
+
+            // Unlock audio on FIRST interaction (mobile autoplay policy)
             if (nextMonitoring) {
-              const silentAudio = new Audio("data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYNAAAAAAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYNAAAAAAAAAAAAAAAAAAAA");
-              silentAudio.volume = 0.01;
-              silentAudio.play().catch(() => { /* ignore */ });
+              // Create or reuse audio object
+              if (!audioRef.current) {
+                audioRef.current = new Audio();
+              }
+              const audio = audioRef.current;
+
+              // Play silent sound to fallback unlock
+              audio.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYNAAAAAAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYNAAAAAAAAAAAAAAAAAAAA";
+              audio.volume = 0.01;
+              audio.play().catch(e => console.log("Audio unlock failed (will retry on next event)", e));
             }
+
             setIsMonitoring(nextMonitoring);
           }}
           className={`w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all transform hover:scale-105 active:scale-95 ${isMonitoring
