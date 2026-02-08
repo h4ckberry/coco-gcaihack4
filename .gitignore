@@ -34,3 +34,11 @@ env/
 # サンプルファイル除外
 backend-services/cloud-run/sample_agent
 task.md
+
+
+*/*/implementation_plan.md
+*/*/walkthrough.md
+
+*/*/deploy_log*.txt
+
+*/*/test*.txt
