@@ -13,6 +13,7 @@
       "**/node_modules/**"
     ],
     "frameworksBackend": {
+      "memory": "1024MiB",
       "region": "asia-east1"
     }
   },
