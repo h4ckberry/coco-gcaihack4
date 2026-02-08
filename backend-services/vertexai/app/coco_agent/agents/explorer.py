@@ -1,7 +1,7 @@
 from google.adk.agents.llm_agent import Agent
-from ..prompts.loader import load_prompt
-from ..tools.firestore_tools import search_logs
-from ...app_utils.obniz import ObnizController
+from app.coco_agent.prompts.loader import load_prompt
+from app.coco_agent.tools.firestore_tools import search_logs
+from app.app_utils.obniz import ObnizController
 
 obniz = ObnizController()
 

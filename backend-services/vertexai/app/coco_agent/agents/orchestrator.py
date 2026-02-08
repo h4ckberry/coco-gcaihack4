@@ -1,9 +1,9 @@
 from google.adk.agents import Agent
-from ..prompts.loader import load_prompt
+from app.coco_agent.prompts.loader import load_prompt
 from .monitor import monitor_agent
 from .explorer import explorer_agent
 from .reasoner import reasoner_agent
-from ...app_utils.tts import synthesize_text
+from app.app_utils.tts import synthesize_text
 
 def generate_speech(text: str) -> str:
     """

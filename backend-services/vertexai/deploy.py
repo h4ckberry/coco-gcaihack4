@@ -26,7 +26,7 @@ def generate_and_move_requirements():
     try:
         # 1. uv で requirements.txt を生成
         subprocess.check_call([
-            "uv", "export", "--format", "requirements-txt", "--no-hashes", "--output-file", req_file_root
+            "uv", "export", "--format", "requirements-txt", "--no-hashes", "--output-file", req_file_root, "--quiet"
         ])
 
         # 2. クリーニング (-e . などを削除)
@@ -98,11 +98,11 @@ def deploy_agent(display_name, entrypoint_object="agent_engine"):
 if __name__ == "__main__":
     # Orchestrator
     deploy_agent(
-        display_name="Orchestrator Agent",
+        display_name="Orchestrator Agent V2",
         entrypoint_object="agent_engine"
     )
 
-    # Monitor
+    Monitor
     deploy_agent(
         display_name="Monitor Agent",
         entrypoint_object="agent_engine"

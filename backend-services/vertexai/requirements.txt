@@ -96,6 +96,7 @@ google-api-core==2.29.0
     #   google-cloud-bigtable
     #   google-cloud-core
     #   google-cloud-discoveryengine
+    #   google-cloud-firestore
     #   google-cloud-logging
     #   google-cloud-monitoring
     #   google-cloud-resource-manager
@@ -104,6 +105,7 @@ google-api-core==2.29.0
     #   google-cloud-speech
     #   google-cloud-storage
     #   google-cloud-storage-control
+    #   google-cloud-texttospeech
     #   google-cloud-trace
 google-api-python-client==2.188.0
     # via google-adk
@@ -121,6 +123,7 @@ google-auth==2.48.0
     #   google-cloud-bigtable
     #   google-cloud-core
     #   google-cloud-discoveryengine
+    #   google-cloud-firestore
     #   google-cloud-logging
     #   google-cloud-monitoring
     #   google-cloud-resource-manager
@@ -128,6 +131,7 @@ google-auth==2.48.0
     #   google-cloud-speech
     #   google-cloud-storage
     #   google-cloud-storage-control
+    #   google-cloud-texttospeech
     #   google-cloud-trace
     #   google-genai
 google-auth-httplib2==0.3.0
@@ -154,11 +158,14 @@ google-cloud-core==2.5.0
     # via
     #   google-cloud-bigquery
     #   google-cloud-bigtable
+    #   google-cloud-firestore
     #   google-cloud-logging
     #   google-cloud-spanner
     #   google-cloud-storage
 google-cloud-discoveryengine==0.13.12
     # via google-adk
+google-cloud-firestore==2.23.0
+    # via my-agent
 google-cloud-logging==3.13.0
     # via
     #   google-cloud-aiplatform
@@ -186,6 +193,8 @@ google-cloud-storage==3.8.0
     #   my-agent
 google-cloud-storage-control==1.9.0
     # via gcsfs
+google-cloud-texttospeech==2.34.0
+    # via my-agent
 google-cloud-trace==1.18.0
     # via
     #   google-cloud-aiplatform
@@ -234,6 +243,7 @@ grpcio==1.76.0
     #   google-cloud-secret-manager
     #   google-cloud-speech
     #   google-cloud-storage-control
+    #   google-cloud-texttospeech
     #   google-cloud-trace
     #   googleapis-common-protos
     #   grpc-google-iam-v1
@@ -407,6 +417,7 @@ proto-plus==1.27.0
     #   google-cloud-bigquery-storage
     #   google-cloud-bigtable
     #   google-cloud-discoveryengine
+    #   google-cloud-firestore
     #   google-cloud-logging
     #   google-cloud-monitoring
     #   google-cloud-resource-manager
@@ -414,6 +425,7 @@ proto-plus==1.27.0
     #   google-cloud-spanner
     #   google-cloud-speech
     #   google-cloud-storage-control
+    #   google-cloud-texttospeech
     #   google-cloud-trace
 protobuf==6.33.5
     # via
@@ -424,6 +436,7 @@ protobuf==6.33.5
     #   google-cloud-bigquery-storage
     #   google-cloud-bigtable
     #   google-cloud-discoveryengine
+    #   google-cloud-firestore
     #   google-cloud-logging
     #   google-cloud-monitoring
     #   google-cloud-resource-manager
@@ -431,6 +444,7 @@ protobuf==6.33.5
     #   google-cloud-spanner
     #   google-cloud-speech
     #   google-cloud-storage-control
+    #   google-cloud-texttospeech
     #   google-cloud-trace
     #   googleapis-common-protos
     #   grpc-google-iam-v1
@@ -456,12 +470,15 @@ pydantic==2.12.5
     #   google-genai
     #   litellm
     #   mcp
+    #   my-agent
     #   openai
     #   pydantic-settings
 pydantic-core==2.41.5
     # via pydantic
 pydantic-settings==2.12.0
-    # via mcp
+    # via
+    #   mcp
+    #   my-agent
 pygments==2.19.2
     # via pytest
 pyjwt==2.11.0
@@ -624,6 +641,3 @@ yarl==1.22.0
     # via aiohttp
 zipp==3.23.0
     # via importlib-metadata
-
-google-cloud-texttospeech
-google-cloud-firestore

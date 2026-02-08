@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 # デバッグ用: ログに読み込みを表示
 print("DEBUG: Loading settings.py...", file=sys.stderr)
 
-class Settings(BaseSettings):
+class CocoSettings(BaseSettings):
     # ▼▼▼ 今回の追加修正 ▼▼▼
     # Googleが勝手に渡してくる変数を「受け皿」として定義してエラーを防ぐ
     # これがあれば extra="ignore" が効かなくても確実に回避できます
@@ -35,5 +35,5 @@ class Settings(BaseSettings):
         super().__init__(**kwargs)
 
 # キャッシュ化は一旦外してシンプルにします
-def get_settings():
-    return Settings()
+def get_coco_settings():
+    return CocoSettings()

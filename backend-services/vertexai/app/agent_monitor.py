@@ -8,9 +8,10 @@ from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
 from google.cloud import logging as google_cloud_logging
 from vertexai.agent_engines.templates.adk import AdkApp
 
-from .app_utils.telemetry import setup_telemetry
-from .app_utils.typing import Feedback
-from .coco_agent.agents.monitor import monitor_agent
+from app.app_utils.telemetry import setup_telemetry
+from app.app_utils.typing import Feedback
+from app.app_utils.logging_config import configure_logging
+from app.coco_agent.agents.monitor import monitor_agent
 from google.adk.apps import App
 
 # Load environment variables from .env file at runtime
@@ -23,7 +24,7 @@ class AgentEngineApp(AdkApp):
         vertexai.init()
         setup_telemetry()
         super().set_up()
-        logging.basicConfig(level=logging.INFO)
+        configure_logging()
         logging_client = google_cloud_logging.Client()
         self.logger = logging_client.logger(__name__)
         if gemini_location:

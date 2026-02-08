@@ -1,10 +1,10 @@
 from typing import Dict, Any, List
 import json
 from google.adk.agents import Agent
-from ..prompts.loader import load_prompt
-from ..tools.storage_tools import get_image_uri_from_storage
-from ..tools.firestore_tools import save_monitoring_log
-from ...app_utils.obniz import ObnizController
+from app.coco_agent.prompts.loader import load_prompt
+from app.coco_agent.tools.storage_tools import get_image_uri_from_storage
+from app.coco_agent.tools.firestore_tools import save_monitoring_log
+from app.app_utils.obniz import ObnizController
 from google.genai import types
 
 # Initialize Obniz
