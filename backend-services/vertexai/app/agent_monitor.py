@@ -1,24 +1,59 @@
 import logging
 import os
+import sys
 import json
 from typing import Any
 
+# =================================================================
+# 1. Path Configuration (Required for direct execution)
+# =================================================================
+if __name__ == "__main__" and "app" not in sys.modules:
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.dirname(current_dir)
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+
+# =================================================================
+# 2. Third-party & Environment Initialization
+# =================================================================
 import vertexai
 from dotenv import load_dotenv
+
+# Load environment variables immediately
+load_dotenv()
+
+# If API key is present and we haven't explicitly chosen a backend, default to AI Studio for local dev
+if os.environ.get("GOOGLE_API_KEY") and "GOOGLE_GENAI_USE_VERTEXAI" not in os.environ:
+    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "0"
+
+# Explicitly initialize vertexai before other components use it
+try:
+    vertexai.init(
+        project=os.environ.get("GOOGLE_CLOUD_PROJECT"),
+        location=os.environ.get("GOOGLE_CLOUD_LOCATION")
+    )
+except Exception as e:
+    logging.getLogger(__name__).warning(f"Vertex AI initialization skipped or failed: {e}")
+
 from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
 from google.cloud import logging as google_cloud_logging
 from vertexai.agent_engines.templates.adk import AdkApp
+from google.adk.apps import App
 
+# =================================================================
+# 3. Local Application Imports
+# =================================================================
 from app.app_utils.telemetry import setup_telemetry
 from app.app_utils.typing import Feedback
 from app.app_utils.logging_config import configure_logging
 from app.coco_agent.agents.monitor import monitor_agent
 from app.services.monitoring_service import get_monitoring_service
-from google.adk.apps import App
 
-# Load environment variables from .env file at runtime
-load_dotenv()
-
+# =================================================================
+# 4. Global State & App Wrapper Definitions
+# =================================================================
+gemini_location = os.environ.get("GOOGLE_CLOUD_LOCATION")
+logs_bucket_name = os.environ.get("LOGS_BUCKET_NAME")
 
 class AgentEngineApp(AdkApp):
     def set_up(self) -> None:
@@ -43,22 +78,24 @@ class AgentEngineApp(AdkApp):
         operations[""] = operations.get("", []) + ["register_feedback"]
         return operations
 
-
-gemini_location = os.environ.get("GOOGLE_CLOUD_LOCATION")
-logs_bucket_name = os.environ.get("LOGS_BUCKET_NAME")
-
-# Wrap Monitor Agent
+# Global App Wrappers
 monitor_app = App(root_agent=monitor_agent, name="monitor_agent")
 
-agent_engine = AgentEngineApp(
-    app=monitor_app,
-    artifact_service_builder=lambda: GcsArtifactService(bucket_name=logs_bucket_name)
-    if logs_bucket_name
-    else InMemoryArtifactService(),
-)
+try:
+    agent_engine = AgentEngineApp(
+        app=monitor_app,
+        artifact_service_builder=lambda: GcsArtifactService(bucket_name=logs_bucket_name)
+        if logs_bucket_name
+        else InMemoryArtifactService(),
+    )
+except Exception as e:
+    logging.getLogger(__name__).warning(f"Agent Engine App initialization skipped or failed: {e}")
+    agent_engine = None
 
 
-# --- A2A サーバーモード ---
+# =================================================================
+# 5. A2A / REST API Server Mode
+# =================================================================
 def create_a2a_app():
     """Monitor Agent を A2A + REST API 対応の Starlette アプリとして返す。
 
@@ -129,38 +166,44 @@ def create_a2a_app():
         )
         return None
 
-
 # A2A モードが有効な場合、Starlette アプリを module レベルで公開
 a2a_starlette_app = None
 if os.environ.get("MONITOR_A2A_MODE", "0") == "1":
     a2a_starlette_app = create_a2a_app()
 
-
+# =================================================================
+# 6. Entry Point (Local Execution)
+# =================================================================
 if __name__ == "__main__":
     import asyncio
-    import sys
-
+    
+    # A2A モードでの起動
     if os.environ.get("MONITOR_A2A_MODE", "0") == "1" or "--a2a" in sys.argv:
         import uvicorn
-
         setup_telemetry()
         host = os.environ.get("MONITOR_A2A_HOST", "0.0.0.0")
         port = int(os.environ.get("MONITOR_A2A_PORT", "8001"))
-        print(f"🚀 Starting Monitor Agent as A2A server on {host}:{port}...")
+        print(f"[START] Starting Monitor Agent as A2A server on {host}:{port}...")
 
         app = create_a2a_app()
         if app:
             uvicorn.run(app, host=host, port=port)
         else:
-            print("❌ Failed to create A2A app. Check dependencies.")
+            print("[ERROR] Failed to create A2A app. Check dependencies.")
             sys.exit(1)
+            
+    # ローカル対話モードでの起動
     else:
+        # Use API Key instead of ADC for local LLM calls if possible
+        if os.environ.get("GOOGLE_API_KEY"):
+            os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "0"
+            
         from google.adk.runners import InMemoryRunner
         from google.genai import types
 
         async def main():
             setup_telemetry()
-            print("🚀 Starting Monitor Agent locally...")
+            print("[START] Starting Monitor Agent locally...")
             print("Type 'exit' or 'quit' to stop.")
 
             local_app = App(
@@ -182,12 +225,11 @@ if __name__ == "__main__":
             user_id = session.user_id
             
             # Start Monitoring Loop Service
-            from app.services.monitoring_service import get_monitoring_service
             monitoring_service = get_monitoring_service()
             await monitoring_service.start()
-            print("✅ Monitoring Service started.")
+            print("[OK] Monitoring Service started.")
 
-            print(f"✅ Session created: {session_id}")
+            print(f"[OK] Session created: {session_id}")
 
             while True:
                 try:
@@ -225,7 +267,7 @@ if __name__ == "__main__":
                 except KeyboardInterrupt:
                     break
                 except Exception as e:
-                    print(f"\n❌ Error: {e}")
+                    print(f"\n[ERROR] Error: {e}")
             
             await monitoring_service.stop()
 

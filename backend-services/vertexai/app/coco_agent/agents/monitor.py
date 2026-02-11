@@ -80,14 +80,46 @@ def get_monitoring_status() -> str:
 
 
 
-# Initialize Gemini Client
-# We use google-genai library as per existing imports
-try:
-    client = genai.Client(location=os.environ.get("GOOGLE_CLOUD_LOCATION"))
-except Exception as e:
-    logger.warning(f"GenAI Client initialization failed: {e}")
-    client = None
+# Global GenAI Client Cache
+_genai_client = None
 
+def get_genai_client():
+    """
+    Returns the GenAI client, initializing it with API key or ADC as appropriate.
+    """
+    global _genai_client
+    if _genai_client is None:
+        try:
+            from google import genai
+            
+            api_key = os.environ.get("GOOGLE_API_KEY")
+            use_vertex = os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "1") == "1"
+            
+            if api_key and not use_vertex:
+                # Force AI Studio mode by temporarily unsetting Vertex env vars
+                # The google-genai library defaults to Vertex if these are present
+                # Use a local dict to avoid modifying global os.environ permanently here if possible, 
+                # but Client initialization might look at os.environ directly.
+                # So we use the 'unset' trick inside a lock or just rely on it.
+                
+                # Check for explicit base_url or just rely on library behavior if Vertex envs are gone
+                _genai_client = genai.Client(
+                    api_key=api_key, 
+                    http_options={'api_version': 'v1beta'}
+                )
+                logger.info("GenAI client initialized with API Key (Forced AI Studio mode)")
+            else:
+                # Use default (Vertex AI mode)
+                _genai_client = genai.Client(
+                    location=os.environ.get("GOOGLE_CLOUD_LOCATION"),
+                    project=os.environ.get("GOOGLE_CLOUD_PROJECT")
+                )
+                logger.info("GenAI client initialized with Vertex AI mode")
+        except Exception as e:
+            logger.warning(f"GenAI Client initialization failed: {e}")
+            _genai_client = None
+    return _genai_client
+    
 def rotate_and_capture(angle: int) -> str:
     """
     Rotates the camera to the specified angle.
@@ -112,9 +144,6 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
     """
     # Activity update
     get_monitoring_service().update_activity()
-
-    if not client:
-        return "Error: GenAI client not initialized."
 
     # 1. Get Image
     # 1. Get Image
@@ -153,15 +182,74 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
 
     try:
         # 3. Call Generative Model
-        # Using gemini-3-flash-preview as requested
+        # 3. Call Generative Model
+        client = get_genai_client()
+        if not client:
+             return "Error: GenAI client not initialized (Auth error)."
+
+        # Using gemini-3-flash-preview as requested by user
         model_name = "gemini-3-flash-preview"
 
         # Load image part
-        # google-genai supports gs:// URIs directly in Part.from_uri logic usually,
-        # or we might need to verify if we need to download it.
-        # Assuming Vertex AI / Gemini API handles gs:// URIs if in same project/location.
+        # 3. Handle Image Part
+        # AI Studio mode (GOOGLE_GENAI_USE_VERTEXAI="0") does NOT support gs:// URIs directly.
+        # We need to download it if in AI Studio mode.
+        use_vertex = os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "1") == "1"
         if image_uri.startswith("gs://"):
-             image_part = types.Part.from_uri(file_uri=image_uri, mime_type="image/jpeg")
+            if use_vertex:
+                # Vertex AI supports gs:// URIs
+                image_part = types.Part.from_uri(file_uri=image_uri, mime_type="image/jpeg")
+            else:
+                # AI Studio mode requires bytes or upload. Let's try to download.
+                logger.info(f"AI Studio mode detected. Attempting to download {image_uri} for analysis...")
+                
+                # Helper to get image bytes
+                image_bytes = None
+                download_error = None
+
+                # 1. Try Authenticated GCS Client
+                try:
+                    from app.coco_agent.tools.storage_tools import get_storage_client
+                    storage_client = get_storage_client()
+                    
+                    if storage_client:
+                        # Parse gs:// URI
+                        path_parts = image_uri.replace("gs://", "").split("/", 1)
+                        if len(path_parts) >= 2:
+                            bucket_name, blob_name = path_parts
+                            bucket = storage_client.bucket(bucket_name)
+                            blob = bucket.blob(blob_name)
+                            image_bytes = blob.download_as_bytes()
+                            logger.info(f"Successfully downloaded via GCS Client: {image_uri}")
+                except Exception as e:
+                    download_error = e
+                    logger.warning(f"GCS Client download failed (trying fallback): {e}")
+
+                # 2. Fallback: Try Public/Signed URL via HTTP
+                if image_bytes is None:
+                    try:
+                        import requests
+                        # Construct public URL: https://storage.googleapis.com/BUCKET_NAME/BLOB_NAME
+                        path_parts = image_uri.replace("gs://", "").split("/", 1)
+                        if len(path_parts) >= 2:
+                            bucket_name, blob_name = path_parts
+                            # Note: This only works if object is public
+                            public_url = f"https://storage.googleapis.com/{bucket_name}/{blob_name}"
+                            logger.info(f"Attempting download via Public URL: {public_url}")
+                            
+                            resp = requests.get(public_url, timeout=10)
+                            if resp.status_code == 200:
+                                image_bytes = resp.content
+                                logger.info(f"Successfully downloaded via Public URL: {public_url}")
+                            else:
+                                logger.warning(f"Public URL download failed: {resp.status_code}")
+                    except Exception as e:
+                        logger.warning(f"Public URL download check failed: {e}")
+
+                if image_bytes:
+                    image_part = types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
+                else:
+                    return f"Error: Failed to fetch image from GCS. Auth failed and public access denied. ({download_error})"
         else:
              logger.error(f"Unsupported image URI format: {image_uri}")
              return f"Error: Unsupported image URI format: {image_uri}"
@@ -172,7 +260,7 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
                 types.Content(
                     role="user",
                     parts=[
-                        types.Part.from_text(prompt_text),
+                        types.Part.from_text(text=prompt_text),
                         image_part
                     ]
                 )
@@ -249,7 +337,7 @@ service.set_callbacks(_scan_callback_wrapper, _rotate_callback_wrapper)
 
 monitor_agent = Agent(
     name="monitor_agent",
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash", 
     description="固定画角のカメラ画像を継続的に分析し、物体検出結果をFirestoreにログする監視Agent。suspend/resumeによる排他制御をサポート。",
     instruction=load_prompt("monitor"),
     tools=[

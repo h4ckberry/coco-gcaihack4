@@ -1,4 +1,48 @@
+import os
+import logging
 from app.coco_settings import get_coco_settings
+
+
+logger = logging.getLogger(__name__)
+
+
+_storage_client = None
+
+def get_storage_client():
+    """
+    Returns the Storage client, initializing it if necessary.
+    """
+    global _storage_client
+    if _storage_client is None:
+        try:
+            from google.cloud import storage
+            from google.oauth2 import service_account
+            
+            settings = get_coco_settings()
+            project_id = settings.GCLOUD_PROJECT_ID or os.environ.get("GOOGLE_CLOUD_PROJECT")
+            
+            # Explicitly load credentials if env var is set
+            # Explicitly load credentials if env var is set
+            key_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+            
+            if key_path:
+                if os.path.exists(key_path):
+                    try:
+                        creds = service_account.Credentials.from_service_account_file(key_path)
+                        _storage_client = storage.Client(credentials=creds, project=project_id)
+                        logger.info(f"Storage client initialized with service account: {key_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to load service account: {e}. Falling back to default.")
+                        _storage_client = storage.Client(project=project_id)
+                else:
+                    _storage_client = storage.Client(project=project_id)
+            else:
+                _storage_client = storage.Client(project=project_id)
+                logger.info(f"Storage client initialized (default auth) for project: {project_id}")
+        except Exception as e:
+            # We don't log error here to avoid spamming if credentials are missing
+            _storage_client = None
+    return _storage_client
 
 def get_image_uri_from_storage(image_id: str) -> str:
     """
@@ -36,20 +80,21 @@ def get_latest_image_uri(bucket_name: str = None) -> str:
     """
     Retrieves the GS URI of the latest uploaded image in the bucket.
     """
-    # Create wrapper to delay import and client init
-    from google.cloud import storage
-    
     settings = get_coco_settings()
     target_bucket = bucket_name or settings.FIREBASE_STORAGE_BUCKET or "ai-coco.firebasestorage.app"
     
+    storage_client = get_storage_client()
+    if not storage_client:
+        # If client initialization failed (likely credentials), return a dummy or empty
+        # For local testing, we might want to return a placeholder.
+        # But for now, returning empty to signal failure without the exception trace.
+        return ""
+    
     try:
-        storage_client = storage.Client()
         bucket = storage_client.bucket(target_bucket)
         
         # List all blobs and sort by creation time
-        # Note: This might be slow for very large buckets. 
-        # For production with many files, consider maintaining a 'latest' pointer or similar.
-        blobs = list(bucket.list_blobs())
+        blobs = list(bucket.list_blobs(max_results=100)) # Limit to 100 for performance
         
         if not blobs:
             return ""
@@ -66,7 +111,5 @@ def get_latest_image_uri(bucket_name: str = None) -> str:
         return f"gs://{target_bucket}/{latest_blob.name}"
         
     except Exception as e:
-        # Log error or silence? storage_tools usually doesn't log explicitly but monitor.py does.
-        # Let's return empty string on failure.
-        print(f"Failed to get latest image: {e}")
+        logger.warning(f"Failed to fetch latest image from GCS: {e}")
         return ""

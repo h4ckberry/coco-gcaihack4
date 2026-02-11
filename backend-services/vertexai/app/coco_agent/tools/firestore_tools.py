@@ -5,13 +5,29 @@ from google.cloud import firestore
 
 logger = logging.getLogger(__name__)
 
-# Initialize Firestore Client
-# Assumes GOOGLE_APPLICATION_CREDENTIALS is set or running in GCP environment
-try:
-    db = firestore.Client()
-except Exception as e:
-    logger.warning(f"Firestore client initialization failed: {e}. Using mock DB.")
-    db = None
+_db = None
+
+def get_db():
+    """
+    Returns the Firestore client, initializing it if necessary.
+    """
+    global _db
+    if _db is None:
+        try:
+            # We explicitly allow setting project ID from setting if env is missing
+            from app.coco_settings import get_coco_settings
+            settings = get_coco_settings()
+            project_id = settings.GOOGLE_CLOUD_PROJECT or os.environ.get("GOOGLE_CLOUD_PROJECT")
+            
+            _db = firestore.Client(project=project_id)
+            logger.info(f"Firestore client initialized for project: {project_id}")
+        except Exception as e:
+            logger.warning(f"Firestore client initialization failed: {e}. Using mock DB.")
+            _db = None
+    return _db
+
+# Add os import if missing
+import os
 
 def save_monitoring_log(
     image_storage_path: str,
@@ -23,6 +39,7 @@ def save_monitoring_log(
     """
     Saves monitoring data to Firestore 'monitoring_logs' collection.
     """
+    db = get_db()
     if db is None:
         logger.info("[Mock] Saving to Firestore: " + str(detected_objects))
         return "mock_doc_id"
@@ -68,6 +85,7 @@ def search_logs(query_label: str, limit: int = 5) -> List[Dict[str, Any]]:
     """
     Searches monitoring logs for a specific object label.
     """
+    db = get_db()
     if db is None:
         return []
 
@@ -99,6 +117,7 @@ def get_recent_context(limit: int = 3) -> List[Dict[str, Any]]:
     """
     Retrieves the most recent monitoring logs to establish context.
     """
+    db = get_db()
     if db is None:
         return []
 
