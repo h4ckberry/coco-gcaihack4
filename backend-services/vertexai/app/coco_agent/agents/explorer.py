@@ -5,12 +5,19 @@ from app.app_utils.obniz import ObnizController
 
 obniz = ObnizController()
 
-def rotate_to_target(angle: int) -> str:
+from google.adk.tools import ToolContext
+from app.services.state_service import set_agent_moving
+
+async def rotate_to_target(angle: int, tool_context: ToolContext = None) -> str:
     """
     Rotates the camera to the specified angle to face the target.
     Args:
         angle (int): The target angle in degrees.
+        tool_context: ToolContext (Injected by ADK)
     """
+    session_id = tool_context.session.id if tool_context and tool_context.session else "default"
+    await set_agent_moving(session_id, "explorer_agent", f"Rotating camera to {angle}...")
+
     # Quantize to nearest 30 degrees as requested
     quantized_angle = round(angle / 30) * 30
     # Clamp to 0-180 range

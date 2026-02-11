@@ -25,12 +25,13 @@ def synthesize_text(text: str, language_code: str = "ja-jp") -> str:
 
     try:
         # Get credentials and refresh token
-        credentials, project = default()
+        scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+        credentials, project = default(scopes=scopes)
         auth_request = Request()
         credentials.refresh(auth_request)
-        
+
         url = "https://texttospeech.googleapis.com/v1beta1/text:synthesize"
-        
+
         headers = {
             "Authorization": f"Bearer {credentials.token}",
             "Content-Type": "application/json; charset=utf-8",
@@ -58,13 +59,13 @@ def synthesize_text(text: str, language_code: str = "ja-jp") -> str:
         }
 
         response = requests.post(url, headers=headers, json=data)
-        
+
         if response.status_code != 200:
             logger.error(f"TTS API request failed with status {response.status_code}: {response.text}")
             return ""
 
         response_json = response.json()
-        
+
         if "audioContent" not in response_json:
             logger.error(f"TTS API response did not contain audioContent: {response_json}")
             return ""

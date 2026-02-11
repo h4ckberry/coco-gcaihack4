@@ -46,31 +46,57 @@ _BASE_SCHEMA = """
     }
     """
 
-def suspend_monitoring(reason: str = "explorer_request", duration: int = 300) -> str:
+from google.adk.tools import ToolContext
+from app.services.state_service import update_agent_state
+
+async def suspend_monitoring(reason: str = "explorer_request", duration: int = 300, tool_context: ToolContext = None) -> str:
     """
-    監視ループを一時停止します。Explorer Agent がカメラを操作する前に呼び出してください。
+    Monitor Agent の自動監視ループを一時停止します。
+    Explorer Agent にタスクを委譲する前に必ず呼び出してください。
 
     Args:
-        reason: 一時停止の理由（例: "explorer_request", "user_request"）
-        duration: 一時停止の最大期間（秒）。この期間が過ぎると自動的に再開されます。
+        reason: 一時停止の理由 (例: "explorer_request")
+        duration: 停止する秒数 (デフォルト 300秒)
+        tool_context: ToolContext (Injected by ADK)
 
     Returns:
-        一時停止の結果メッセージ。
+        一時停止の結果メッセージ（JSON文字列）
     """
-    service = get_monitoring_service()
-    result = service.suspend(reason=reason, duration=duration)
+    session_id = tool_context.session.id if tool_context and tool_context.session else "default"
+    await update_agent_state(
+         session_id=session_id,
+         agent_name="monitor_agent",
+         head_state="Thinking",
+         body_action="Idle",
+         message=f"Suspending monitor for {reason}...",
+         mode="Inference"
+    )
+
+    result = get_monitoring_service().suspend(reason=reason, duration=duration)
     return json.dumps(result, ensure_ascii=False)
 
 
-def resume_monitoring() -> str:
+async def resume_monitoring(tool_context: ToolContext = None) -> str:
     """
-    一時停止中の監視ループを再開します。Explorer Agent の操作が完了した後に呼び出してください。
+    一時停止中の監視を再開します。Explorer Agent の操作完了後に必ず呼び出してください。
+
+    Args:
+        tool_context: ToolContext (Injected by ADK)
 
     Returns:
-        再開の結果メッセージ。
+        再開の結果メッセージ（JSON文字列）
     """
-    service = get_monitoring_service()
-    result = service.resume()
+    session_id = tool_context.session.id if tool_context and tool_context.session else "default"
+    await update_agent_state(
+         session_id=session_id,
+         agent_name="monitor_agent",
+         head_state="Idle",
+         body_action="Idle",
+         message="Resuming monitoring...",
+         mode="Monitoring"
+    )
+
+    result = get_monitoring_service().resume()
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -99,20 +125,20 @@ def get_genai_client():
     if _genai_client is None:
         try:
             from google import genai
-            
+
             api_key = os.environ.get("GOOGLE_API_KEY")
             use_vertex = os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "1") == "1"
-            
+
             if api_key and not use_vertex:
                 # Force AI Studio mode by temporarily unsetting Vertex env vars
                 # The google-genai library defaults to Vertex if these are present
-                # Use a local dict to avoid modifying global os.environ permanently here if possible, 
+                # Use a local dict to avoid modifying global os.environ permanently here if possible,
                 # but Client initialization might look at os.environ directly.
                 # So we use the 'unset' trick inside a lock or just rely on it.
-                
+
                 # Check for explicit base_url or just rely on library behavior if Vertex envs are gone
                 _genai_client = genai.Client(
-                    api_key=api_key, 
+                    api_key=api_key,
                     http_options={'api_version': 'v1beta'}
                 )
                 logger.info("GenAI client initialized with API Key (Forced AI Studio mode)")
@@ -127,13 +153,23 @@ def get_genai_client():
             logger.warning(f"GenAI Client initialization failed: {e}")
             _genai_client = None
     return _genai_client
-    
-def rotate_and_capture(angle: int) -> str:
+
+from google.adk.tools import ToolContext
+from app.services.state_service import set_agent_moving
+
+async def rotate_to_target(angle: int, tool_context: ToolContext = None) -> str:
     """
-    Rotates the camera to the specified angle.
-    Returns a status message.
+    Rotates the camera to the specified angle to search for an object.
+
+    Args:
+        angle: Target angle (-90, 0, 90, 180).
+        tool_context: ToolContext (Injected by ADK)
     """
-    # Activity update
+    # フロントエンドへの通知
+    session_id = tool_context.session.session_id if tool_context and tool_context.session else "default"
+    await set_agent_moving(session_id, "explorer_agent", f"Rotating camera to {angle}°...")
+
+    # Validate angle
     get_monitoring_service().update_activity()
 
     obniz_controller.rotate(angle)
@@ -210,7 +246,7 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
             else:
                 # AI Studio mode requires bytes or upload. Let's try to download.
                 logger.info(f"AI Studio mode detected. Attempting to download {image_uri} for analysis...")
-                
+
                 bucket_name, blob_name = parse_gcs_uri(image_uri)
                 if not bucket_name or not blob_name:
                     return f"Error: Invalid GCS URI format: {image_uri}"
@@ -222,7 +258,7 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
                 # 1. Try Authenticated GCS Client
                 try:
                     storage_client = get_storage_client()
-                    
+
                     if storage_client:
                         bucket = storage_client.bucket(bucket_name)
                         blob = bucket.blob(blob_name)
@@ -343,7 +379,7 @@ monitor_agent = Agent(
     instruction=load_prompt("monitor"),
     tools=[
         detect_objects,
-        rotate_and_capture,
+        rotate_to_target,
         suspend_monitoring,
         resume_monitoring,
         get_monitoring_status,

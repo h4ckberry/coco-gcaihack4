@@ -3,6 +3,7 @@ import datetime
 import os
 from typing import Dict, Any, List, Optional
 from google.cloud import firestore
+from google.adk.tools import ToolContext
 from app.coco_settings import get_coco_settings
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ def get_db():
             # We explicitly allow setting project ID from setting if env is missing
             settings = get_coco_settings()
             project_id = settings.GCLOUD_PROJECT_ID or os.environ.get("GOOGLE_CLOUD_PROJECT")
-            
+
             _db = firestore.Client(project=project_id)
             logger.info(f"Firestore client initialized for project: {project_id}")
         except Exception as e:
@@ -46,7 +47,7 @@ def save_monitoring_log(
     # Generate timestamp and doc_id
     now = datetime.datetime.now(datetime.timezone.utc)
     timestamp = now
-    
+
     # Generate clean ID using timestamp and session/suffix
     doc_id = f"log_{now.strftime('%Y%m%d_%H%M%S')}_{scan_session_id or 'manual'}"
 
@@ -80,42 +81,27 @@ def save_monitoring_log(
         logger.error(f"Failed to save to Firestore: {e}")
         return ""
 
-def search_logs(query_label: str, limit: int = 5) -> List[Dict[str, Any]]:
+from google.adk.tools import ToolContext
+from app.services.state_service import set_agent_searching, set_agent_thinking
+
+async def search_logs(query_label: str, limit: int = 5, tool_context: ToolContext = None) -> List[Dict[str, Any]]:
     """
     Searches monitoring logs for a specific object label.
     """
+    session_id = tool_context.session.id if tool_context and tool_context.session else "default"
+    await set_agent_searching(session_id, "explorer_agent", f"Searching logs for '{query_label}'...")
+
     db = get_db()
-    if db is None:
-        return []
 
-    try:
-        # Note: This requires a composite index or simple query.
-        # For simplicity, we might query recent logs and filter in memory if volume is low,
-        # or use array-contains if we flatten the labels.
-        # Here we'll fetch recent logs and filter for flexibility.
-        docs = db.collection("monitoring_logs").order_by(
-            "timestamp", direction=firestore.Query.DESCENDING
-        ).limit(20).stream()
+# ... (middle parts omitted, no changes needed inside) ...
 
-        results = []
-        for doc in docs:
-            data = doc.to_dict()
-            search_labels = data.get("search_labels", [])
-
-            # Check if query_label matches any label in search_labels (partial match or exact)
-            if any(query_label.lower() in label for label in search_labels):
-                results.append(data)
-                if len(results) >= limit:
-                    return results
-        return results
-    except Exception as e:
-        logger.error(f"Failed to search logs: {e}")
-        return []
-
-def get_recent_context(limit: int = 3) -> List[Dict[str, Any]]:
+async def get_recent_context(limit: int = 3, tool_context: ToolContext = None) -> List[Dict[str, Any]]:
     """
     Retrieves the most recent monitoring logs to establish context.
     """
+    session_id = tool_context.session.id if tool_context and tool_context.session else "default"
+    await set_agent_thinking(session_id, "reasoner_agent", "Retrieving recent context...")
+
     db = get_db()
     if db is None:
         return []

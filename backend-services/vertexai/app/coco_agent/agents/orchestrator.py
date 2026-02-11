@@ -40,33 +40,60 @@ logger.info(f"Orchestrator: Monitor Agent mode = {'A2A Remote' if _use_a2a else 
 
 # --- Orchestrator のツール定義 ---
 
-def generate_speech(text: str) -> str:
+from app.services.state_service import set_agent_speaking
+from google.adk.tools import ToolContext
+
+async def generate_speech(text: str, tool_context: ToolContext = None) -> str:
     """
-    Generates speech audio from text and returns a status message.
-    The audio content is handled by the system (saved to session/response).
+    指定されたテキストを音声に変換します。最終回答をユーザに伝える際に使用してください。
+
+    Args:
+        text: 音声合成するテキスト
+        tool_context: ToolContext (Injected by ADK)
     """
+    session_id = tool_context.session.id if tool_context and tool_context.session else "default"
+    await set_agent_speaking(session_id, "orchestrator", text)
+
     audio_b64 = synthesize_text(text)
     return f"<AUDIO_CONTENT>{audio_b64}</AUDIO_CONTENT>"
 
 
-def suspend_monitoring(reason: str = "explorer_request", duration: int = 300) -> str:
+from google.adk.tools import ToolContext
+from app.services.state_service import update_agent_state
+
+# The original synchronous suspend_monitoring is replaced by the async version.
+# The user provided a placeholder `pass` for the original, implying replacement.
+async def suspend_monitoring_async(reason: str, duration: int = 300, tool_context: ToolContext = None) -> str:
     """
-    監視を一時停止します。Explorer Agent がカメラを操作する前に必ず呼び出してください。
-    これにより、Monitor Agent の定期巡回が一時停止し、カメラの競合が防止されます。
+    Monitor Agent の自動監視ループを一時停止します。
+    Explorer Agent にタスクを委譲する前に必ず呼び出してください。
 
     Args:
-        reason: 一時停止の理由（例: "explorer_request"）
-        duration: 一時停止の最大期間（秒）。この期間後に自動で再開されます。
+        reason: 一時停止の理由 (例: "explorer_request")
+        duration: 停止する秒数 (デフォルト 300秒)
+        tool_context: ToolContext (Injected by ADK)
 
     Returns:
         一時停止の結果メッセージ（JSON文字列）
     """
+    session_id = tool_context.session.id if tool_context and tool_context.session else "default"
+
+    # フロントエンドへの通知
+    await update_agent_state(
+        session_id=session_id,
+        agent_name="orchestrator",
+        head_state="Thinking",
+        body_action="Idle",
+        message=f"Suspending monitor for {reason}...",
+        mode="Inference"
+    )
+
     if MONITOR_AGENT_ENDPOINT:
         # A2A モード: Monitor の REST API を呼ぶ
         try:
             url = MONITOR_AGENT_ENDPOINT.rstrip("/") + "/api/suspend"
-            with httpx.Client(timeout=10.0) as client:
-                resp = client.post(url, json={"reason": reason, "duration": duration})
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(url, json={"reason": reason, "duration": duration})
                 resp.raise_for_status()
                 return json.dumps(resp.json(), ensure_ascii=False)
         except Exception as e:
@@ -80,19 +107,36 @@ def suspend_monitoring(reason: str = "explorer_request", duration: int = 300) ->
         return json.dumps(result, ensure_ascii=False)
 
 
-def resume_monitoring() -> str:
+# The original synchronous resume_monitoring is replaced by the async version.
+# The user provided a placeholder `pass` for the original, implying replacement.
+async def resume_monitoring_async(tool_context: ToolContext = None) -> str:
     """
     一時停止中の監視を再開します。Explorer Agent の操作完了後に必ず呼び出してください。
+
+    Args:
+        tool_context: ToolContext (Injected by ADK)
 
     Returns:
         再開の結果メッセージ（JSON文字列）
     """
+    session_id = tool_context.session.id if tool_context and tool_context.session else "default"
+
+    # フロントエンドへの通知
+    await update_agent_state(
+        session_id=session_id,
+        agent_name="orchestrator",
+        head_state="Idle",
+        body_action="Idle",
+        message="Resuming monitoring...",
+        mode="Monitoring"
+    )
+
     if MONITOR_AGENT_ENDPOINT:
-        # A2A モード: Monitor の REST API を呼ぶ
+        # A2A モード
         try:
             url = MONITOR_AGENT_ENDPOINT.rstrip("/") + "/api/resume"
-            with httpx.Client(timeout=10.0) as client:
-                resp = client.post(url)
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(url)
                 resp.raise_for_status()
                 return json.dumps(resp.json(), ensure_ascii=False)
         except Exception as e:
@@ -114,8 +158,8 @@ orchestrator_agent = Agent(
     sub_agents=[monitor_remote, explorer_agent, reasoner_agent],
     tools=[
         generate_speech,
-        suspend_monitoring,
-        resume_monitoring,
+        suspend_monitoring_async,
+        resume_monitoring_async,
         get_calendar_events,
         create_calendar_event,
     ]
