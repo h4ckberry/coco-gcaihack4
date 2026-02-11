@@ -102,7 +102,7 @@ if __name__ == "__main__":
         entrypoint_object="agent_engine"
     )
 
-    Monitor
+    # Monitor
     deploy_agent(
         display_name="Monitor Agent",
         entrypoint_object="agent_engine"

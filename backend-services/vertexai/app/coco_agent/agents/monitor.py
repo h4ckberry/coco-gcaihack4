@@ -4,44 +4,60 @@ from google.adk.agents import Agent
 from app.coco_agent.prompts.loader import load_prompt
 from app.coco_agent.tools.storage_tools import get_image_uri_from_storage
 from app.coco_agent.tools.firestore_tools import save_monitoring_log
-from app.app_utils.obniz import ObnizController
+from app.services.monitoring_service import get_monitoring_service
 from google.genai import types
 
-# Initialize Obniz
-obniz = ObnizController()
 
-def rotate_and_capture(angle: int) -> str:
+def suspend_monitoring(reason: str = "explorer_request", duration: int = 300) -> str:
     """
-    Rotates the camera to the specified angle.
-    Returns a status message.
-    """
-    obniz.rotate(angle)
-    return f"Camera rotated to {angle} degrees."
+    監視ループを一時停止します。Explorer Agent がカメラを操作する前に呼び出してください。
 
-def detect_and_log(image_uri: str) -> Dict[str, Any]:
-    """
-    Analyzes the image at the given URI, detects objects, and logs to Firestore.
-    Returns the detection result.
-    """
-    # This function is a bit complex for a simple tool call if we want to use the Agent's model inside it.
-    # In ADK, tools are usually external functions.
-    # However, the Agent itself has valid model access.
-    # For simplicity, we will define this behavior in the Agent's instruction
-    # and provide helper tools for the side effects (save_log).
-    # But the Agent *is* the one doing detection.
+    Args:
+        reason: 一時停止の理由（例: "explorer_request", "user_request"）
+        duration: 一時停止の最大期間（秒）。この期間が過ぎると自動的に再開されます。
 
-    # We'll just return a dummy structure here if this was a tool,
-    # but strictly speaking, the AGENT should do the "Thinking" (Detection).
-    # So we will provide tools for:
-    # 1. saving to DB
-    # 2. controlling motor
-    pass
+    Returns:
+        一時停止の結果メッセージ。
+    """
+    service = get_monitoring_service()
+    result = service.suspend(reason=reason, duration=duration)
+    return json.dumps(result, ensure_ascii=False)
+
+
+def resume_monitoring() -> str:
+    """
+    一時停止中の監視ループを再開します。Explorer Agent の操作が完了した後に呼び出してください。
+
+    Returns:
+        再開の結果メッセージ。
+    """
+    service = get_monitoring_service()
+    result = service.resume()
+    return json.dumps(result, ensure_ascii=False)
+
+
+def get_monitoring_status() -> str:
+    """
+    現在の監視ステータスを取得します（一時停止中か、誰が停止したか等）。
+
+    Returns:
+        監視ステータスの JSON 文字列。
+    """
+    service = get_monitoring_service()
+    result = service.get_status()
+    return json.dumps(result, ensure_ascii=False)
+
 
 monitor_agent = Agent(
     name="monitor_agent",
     model="gemini-2.5-flash",
-    description="Agent for monitoring camera feeds, detecting objects, and logging to Firestore.",
+    description="固定画角のカメラ画像を継続的に分析し、物体検出結果をFirestoreにログする監視Agent。suspend/resumeによる排他制御をサポート。",
     instruction=load_prompt("monitor"),
-    tools=[get_image_uri_from_storage, save_monitoring_log, rotate_and_capture]
+    tools=[
+        get_image_uri_from_storage,
+        save_monitoring_log,
+        suspend_monitoring,
+        resume_monitoring,
+        get_monitoring_status,
+    ],
 )
-
