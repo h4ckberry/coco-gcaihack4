@@ -14,7 +14,7 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-obniz = ObnizController()
+obniz_controller = ObnizController()
 
 _BASE_SCHEMA = """
     Output JSON:
@@ -96,7 +96,7 @@ def rotate_and_capture(angle: int) -> str:
     # Activity update
     get_monitoring_service().update_activity()
     
-    obniz.rotate(angle)
+    obniz_controller.rotate(angle)
     return f"Camera rotated to {angle} degrees."
 
 def detect_objects(query: str = "detect everything", image_uri: Optional[str] = None) -> str:
@@ -203,7 +203,7 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
             image_storage_path=image_uri,
             detected_objects=data.get("all_objects", []),
             environment=env_data,
-            motor_angle=obniz.current_angle if hasattr(obniz, "current_angle") else 0,
+            motor_angle=obniz_controller.current_angle if hasattr(obniz_controller, "current_angle") else 0,
             scan_session_id=None # Single shot query
         )
         
@@ -232,7 +232,7 @@ def _scan_callback_wrapper(angle: int):
     detect_objects(query="monitor")
 
 def _rotate_callback_wrapper(angle: int):
-    obniz.rotate(angle)
+    obniz_controller.rotate(angle)
 
 # Initialize and Start Service
 service = get_monitoring_service()
