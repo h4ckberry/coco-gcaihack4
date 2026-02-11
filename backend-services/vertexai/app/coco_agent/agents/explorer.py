@@ -27,5 +27,7 @@ explorer_agent = Agent(
     model="gemini-2.5-flash",
     description="Agent for physically searching for objects and controlling the camera.",
     instruction=load_prompt("explorer"),
-    tools=[search_logs, rotate_to_target]
+    tools=[search_logs, rotate_to_target],
+    output_key="explorer_result",
+    disallow_transfer_to_peers=True,
 )
