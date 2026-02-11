@@ -22,9 +22,9 @@ _BASE_SCHEMA = """
         "found": boolean,
         "box_2d": [ymin, xmin, ymax, xmax] or null (for the target object),
         "label": "target object name" or "Multiple Objects" if generic,
-        "all_objects": [ 
-            { 
-                "box_2d": [ymin, xmin, ymax, xmax], 
+        "all_objects": [
+            {
+                "box_2d": [ymin, xmin, ymax, xmax],
                 "label": "object name",
                 "confidence": float (0.0-1.0)
             },
@@ -95,18 +95,18 @@ def rotate_and_capture(angle: int) -> str:
     """
     # Activity update
     get_monitoring_service().update_activity()
-    
+
     obniz_controller.rotate(angle)
     return f"Camera rotated to {angle} degrees."
 
 def detect_objects(query: str = "detect everything", image_uri: Optional[str] = None) -> str:
     """
     Analyzes the camera image to detect objects based on a query.
-    
+
     Args:
         query: The user's question or "detect everything" to list all objects.
         image_uri: Optional GS URI of the image to analyze. If not provided, the latest image is fetched.
-        
+
     Returns:
         A text summary of what was found.
     """
@@ -123,7 +123,7 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
         # We use a tool from storage_tools to get the latest uploaded image
         # Note: This fetches the actual latest file from GCS.
         image_uri = get_latest_image_uri()
-    
+
     if not image_uri:
         return "Error: No image available to analyze (Bucket empty or access failed)."
 
@@ -140,14 +140,14 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
         Analyze the image and detect ALL visible objects.
         List every distinct object you see with its bounding box and confidence.
         Also analyze the environment details.
-        
+
         {base_schema}
         """
     else:
         prompt_text = f"""
         Analyze the image and find the object: "{query}".
         Also detect ALL other visible objects in the scene.
-        
+
         {base_schema}
         """
 
@@ -155,16 +155,16 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
         # 3. Call Generative Model
         # Using gemini-3-flash-preview as requested
         model_name = "gemini-3-flash-preview"
-        
+
         # Load image part
-        # google-genai supports gs:// URIs directly in Part.from_uri logic usually, 
+        # google-genai supports gs:// URIs directly in Part.from_uri logic usually,
         # or we might need to verify if we need to download it.
         # Assuming Vertex AI / Gemini API handles gs:// URIs if in same project/location.
         if image_uri.startswith("gs://"):
              image_part = types.Part.from_uri(file_uri=image_uri, mime_type="image/jpeg")
         else:
              logger.error(f"Unsupported image URI format: {image_uri}")
-             return f"Error: Unsupported image URI format: {image_uri}" 
+             return f"Error: Unsupported image URI format: {image_uri}"
 
         response = client.models.generate_content(
             model=model_name,
@@ -182,7 +182,7 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
                 temperature=0.5
             )
         )
-        
+
         # 4. Parse Response
         text_resp = response.text.strip()
         # Clean up code blocks if standard text response
@@ -190,9 +190,9 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
             text_resp = text_resp[7:]
         if text_resp.endswith("```"):
             text_resp = text_resp[:-3]
-        
+
         data = json.loads(text_resp)
-        
+
         # 5. Save to Firestore
         env_data = data.get("environment", {})
         # Ensure trigger is set properly if missing
@@ -206,11 +206,11 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
             motor_angle=obniz_controller.current_angle if hasattr(obniz_controller, "current_angle") else 0,
             scan_session_id=None # Single shot query
         )
-        
+
         # 6. Return Summary
         found = data.get("found", False)
         main_label = data.get("label", "Unknown")
-        
+
         if is_generic:
             return f"Monitoring Report: Detected {len(data.get('all_objects', []))} objects. Scene: {env_data.get('scene_description', 'No description')}."
         else:
@@ -249,7 +249,7 @@ service.set_callbacks(_scan_callback_wrapper, _rotate_callback_wrapper)
 
 monitor_agent = Agent(
     name="monitor_agent",
-    model="gemini-2.5-flash", 
+    model="gemini-2.5-flash",
     description="固定画角のカメラ画像を継続的に分析し、物体検出結果をFirestoreにログする監視Agent。suspend/resumeによる排他制御をサポート。",
     instruction=load_prompt("monitor"),
     tools=[
@@ -258,7 +258,7 @@ monitor_agent = Agent(
         suspend_monitoring,
         resume_monitoring,
         get_monitoring_status,
-        get_image_uri_from_storage, 
+        get_image_uri_from_storage,
         save_monitoring_log
     ]
 
