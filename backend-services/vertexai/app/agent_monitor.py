@@ -1,4 +1,5 @@
 import logging
+logging.getLogger("google.adk").setLevel(logging.INFO)
 import os
 import sys
 import json
@@ -194,10 +195,6 @@ if __name__ == "__main__":
             
     # ローカル対話モードでの起動
     else:
-        # Use API Key instead of ADC for local LLM calls if possible
-        if os.environ.get("GOOGLE_API_KEY"):
-            os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "0"
-            
         from google.adk.runners import InMemoryRunner
         from google.genai import types
 
@@ -251,6 +248,8 @@ if __name__ == "__main__":
                     # However, for simple input/output loop, standard ADK pattern:
                     
                     def run_turn(u_in):
+                        # Clean surrogates to avoid pydantic serialization errors on some environments
+                        u_in = u_in.encode('utf-8', 'ignore').decode('utf-8')
                         for event in runner.run(
                             user_id=user_id,
                             session_id=session_id,

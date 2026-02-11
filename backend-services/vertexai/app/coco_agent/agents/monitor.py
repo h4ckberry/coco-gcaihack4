@@ -3,9 +3,10 @@ import json
 import os
 import logging
 import asyncio
+import requests
 from google.adk.agents import Agent
 from app.coco_agent.prompts.loader import load_prompt
-from app.coco_agent.tools.storage_tools import get_image_uri_from_storage, get_latest_image_uri
+from app.coco_agent.tools.storage_tools import get_image_uri_from_storage, get_latest_image_uri, get_storage_client
 from app.coco_agent.tools.firestore_tools import save_monitoring_log
 from app.services.monitoring_service import get_monitoring_service
 from app.app_utils.obniz import ObnizController
@@ -13,6 +14,13 @@ from google import genai
 from google.genai import types
 
 logger = logging.getLogger(__name__)
+
+def parse_gcs_uri(gs_uri: str) -> tuple[str, str]:
+    """Parses a gs:// URI into a bucket name and blob name."""
+    path_parts = gs_uri.replace("gs://", "").split("/", 1)
+    if len(path_parts) >= 2:
+        return path_parts[0], path_parts[1]
+    return "", ""
 
 obniz_controller = ObnizController()
 
@@ -203,24 +211,23 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
                 # AI Studio mode requires bytes or upload. Let's try to download.
                 logger.info(f"AI Studio mode detected. Attempting to download {image_uri} for analysis...")
                 
+                bucket_name, blob_name = parse_gcs_uri(image_uri)
+                if not bucket_name or not blob_name:
+                    return f"Error: Invalid GCS URI format: {image_uri}"
+
                 # Helper to get image bytes
                 image_bytes = None
                 download_error = None
 
                 # 1. Try Authenticated GCS Client
                 try:
-                    from app.coco_agent.tools.storage_tools import get_storage_client
                     storage_client = get_storage_client()
                     
                     if storage_client:
-                        # Parse gs:// URI
-                        path_parts = image_uri.replace("gs://", "").split("/", 1)
-                        if len(path_parts) >= 2:
-                            bucket_name, blob_name = path_parts
-                            bucket = storage_client.bucket(bucket_name)
-                            blob = bucket.blob(blob_name)
-                            image_bytes = blob.download_as_bytes()
-                            logger.info(f"Successfully downloaded via GCS Client: {image_uri}")
+                        bucket = storage_client.bucket(bucket_name)
+                        blob = bucket.blob(blob_name)
+                        image_bytes = blob.download_as_bytes()
+                        logger.info(f"Successfully downloaded via GCS Client: {image_uri}")
                 except Exception as e:
                     download_error = e
                     logger.warning(f"GCS Client download failed (trying fallback): {e}")
@@ -228,28 +235,22 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
                 # 2. Fallback: Try Public/Signed URL via HTTP
                 if image_bytes is None:
                     try:
-                        import requests
-                        # Construct public URL: https://storage.googleapis.com/BUCKET_NAME/BLOB_NAME
-                        path_parts = image_uri.replace("gs://", "").split("/", 1)
-                        if len(path_parts) >= 2:
-                            bucket_name, blob_name = path_parts
-                            # Note: This only works if object is public
-                            public_url = f"https://storage.googleapis.com/{bucket_name}/{blob_name}"
-                            logger.info(f"Attempting download via Public URL: {public_url}")
-                            
-                            resp = requests.get(public_url, timeout=10)
-                            if resp.status_code == 200:
-                                image_bytes = resp.content
-                                logger.info(f"Successfully downloaded via Public URL: {public_url}")
-                            else:
-                                logger.warning(f"Public URL download failed: {resp.status_code}")
+                        # Note: This only works if object is public
+                        public_url = f"https://storage.googleapis.com/{bucket_name}/{blob_name}"
+                        logger.info(f"Attempting download via Public URL: {public_url}")
+                        resp = requests.get(public_url, timeout=10)
+                        if resp.status_code == 200:
+                            image_bytes = resp.content
+                            logger.info(f"Successfully downloaded via Public URL: {public_url}")
+                        else:
+                            logger.warning(f"Public URL download failed: {resp.status_code}")
                     except Exception as e:
                         logger.warning(f"Public URL download check failed: {e}")
 
                 if image_bytes:
                     image_part = types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
                 else:
-                    return f"Error: Failed to fetch image from GCS. Auth failed and public access denied. ({download_error})"
+                    return "Error: Failed to fetch image from GCS. Auth failed and public access denied."
         else:
              logger.error(f"Unsupported image URI format: {image_uri}")
              return f"Error: Unsupported image URI format: {image_uri}"
@@ -337,7 +338,7 @@ service.set_callbacks(_scan_callback_wrapper, _rotate_callback_wrapper)
 
 monitor_agent = Agent(
     name="monitor_agent",
-    model="gemini-2.5-flash", 
+    model="gemini-3-flash-preview",
     description="固定画角のカメラ画像を継続的に分析し、物体検出結果をFirestoreにログする監視Agent。suspend/resumeによる排他制御をサポート。",
     instruction=load_prompt("monitor"),
     tools=[

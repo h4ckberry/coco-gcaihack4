@@ -1,5 +1,7 @@
 import os
 import logging
+from google.cloud import storage
+from google.oauth2 import service_account
 from app.coco_settings import get_coco_settings
 
 
@@ -15,13 +17,9 @@ def get_storage_client():
     global _storage_client
     if _storage_client is None:
         try:
-            from google.cloud import storage
-            from google.oauth2 import service_account
-            
             settings = get_coco_settings()
             project_id = settings.GCLOUD_PROJECT_ID or os.environ.get("GOOGLE_CLOUD_PROJECT")
             
-            # Explicitly load credentials if env var is set
             # Explicitly load credentials if env var is set
             key_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
             

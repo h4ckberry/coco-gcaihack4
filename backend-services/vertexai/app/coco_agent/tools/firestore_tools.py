@@ -1,7 +1,9 @@
 import logging
 import datetime
+import os
 from typing import Dict, Any, List, Optional
 from google.cloud import firestore
+from app.coco_settings import get_coco_settings
 
 logger = logging.getLogger(__name__)
 
@@ -15,9 +17,8 @@ def get_db():
     if _db is None:
         try:
             # We explicitly allow setting project ID from setting if env is missing
-            from app.coco_settings import get_coco_settings
             settings = get_coco_settings()
-            project_id = settings.GOOGLE_CLOUD_PROJECT or os.environ.get("GOOGLE_CLOUD_PROJECT")
+            project_id = settings.GCLOUD_PROJECT_ID or os.environ.get("GOOGLE_CLOUD_PROJECT")
             
             _db = firestore.Client(project=project_id)
             logger.info(f"Firestore client initialized for project: {project_id}")
@@ -26,8 +27,6 @@ def get_db():
             _db = None
     return _db
 
-# Add os import if missing
-import os
 
 def save_monitoring_log(
     image_storage_path: str,
