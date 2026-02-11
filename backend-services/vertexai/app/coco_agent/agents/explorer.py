@@ -24,7 +24,7 @@ def rotate_to_target(angle: int) -> str:
 
 explorer_agent = Agent(
     name="explorer_agent",
-    model="gemini-2.5-flash",
+    model="gemini-2.0-flash",
     description="Agent for physically searching for objects and controlling the camera.",
     instruction=load_prompt("explorer"),
     tools=[search_logs, rotate_to_target],

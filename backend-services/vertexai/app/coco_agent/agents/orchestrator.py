@@ -108,7 +108,7 @@ def resume_monitoring() -> str:
 # --- Orchestrator Agent 定義 ---
 orchestrator_agent = Agent(
     name="orchestrator",
-    model="gemini-2.5-flash",
+    model="gemini-2.0-flash",
     description="Orchestrator Agent that routes user queries to specialized sub-agents.",
     instruction=load_prompt("orchestrator"),
     sub_agents=[monitor_remote, explorer_agent, reasoner_agent],

@@ -4,7 +4,7 @@ from app.coco_agent.tools.firestore_tools import search_logs, get_recent_context
 
 reasoner_agent = Agent(
     name="reasoner_agent",
-    model="gemini-2.5-flash",
+    model="gemini-2.0-flash",
     description="Agent for complex reasoning about object locations based on history.",
     instruction=load_prompt("reasoner"),
     tools=[search_logs, get_recent_context],
