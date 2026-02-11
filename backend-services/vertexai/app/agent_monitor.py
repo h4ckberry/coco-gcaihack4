@@ -208,16 +208,19 @@ if __name__ == "__main__":
                     # To keep monitoring loop alive during agent processing, we should ideally run agent in thread.
                     # However, for simple input/output loop, standard ADK pattern:
                     
-                    for event in runner.run(
-                        user_id=user_id,
-                        session_id=session_id,
-                        new_message=types.Content(parts=[types.Part(text=user_input)])
-                    ):
-                       if hasattr(event, "content") and event.content and event.content.parts:
-                            for part in event.content.parts:
-                                 if part.text:
-                                     print(part.text, end="", flush=True)
-                    print()
+                    def run_turn(u_in):
+                        for event in runner.run(
+                            user_id=user_id,
+                            session_id=session_id,
+                            new_message=types.Content(parts=[types.Part(text=u_in)])
+                        ):
+                           if hasattr(event, "content") and event.content and event.content.parts:
+                                for part in event.content.parts:
+                                     if part.text:
+                                         print(part.text, end="", flush=True)
+                        print()
+
+                    await asyncio.to_thread(run_turn, user_input)
 
                 except KeyboardInterrupt:
                     break

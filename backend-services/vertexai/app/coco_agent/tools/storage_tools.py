@@ -31,3 +31,42 @@ def get_image_uri_from_storage(image_id: str) -> str:
     gcs_uri = f"gs://{bucket_name}/{filename}"
 
     return gcs_uri
+
+def get_latest_image_uri(bucket_name: str = None) -> str:
+    """
+    Retrieves the GS URI of the latest uploaded image in the bucket.
+    """
+    # Create wrapper to delay import and client init
+    from google.cloud import storage
+    
+    settings = get_coco_settings()
+    target_bucket = bucket_name or settings.FIREBASE_STORAGE_BUCKET or "ai-coco.firebasestorage.app"
+    
+    try:
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(target_bucket)
+        
+        # List all blobs and sort by creation time
+        # Note: This might be slow for very large buckets. 
+        # For production with many files, consider maintaining a 'latest' pointer or similar.
+        blobs = list(bucket.list_blobs())
+        
+        if not blobs:
+            return ""
+
+        # Filter for images
+        image_blobs = [b for b in blobs if b.name.lower().endswith((".jpg", ".jpeg", ".png"))]
+        
+        if not image_blobs:
+            return ""
+            
+        # Sort by updated/created time descending
+        latest_blob = max(image_blobs, key=lambda x: x.updated or x.time_created)
+        
+        return f"gs://{target_bucket}/{latest_blob.name}"
+        
+    except Exception as e:
+        # Log error or silence? storage_tools usually doesn't log explicitly but monitor.py does.
+        # Let's return empty string on failure.
+        print(f"Failed to get latest image: {e}")
+        return ""

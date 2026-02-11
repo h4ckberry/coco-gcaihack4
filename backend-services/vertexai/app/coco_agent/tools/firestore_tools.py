@@ -30,10 +30,8 @@ def save_monitoring_log(
     # Generate timestamp and doc_id
     now = datetime.datetime.now(datetime.timezone.utc)
     timestamp = now
-    doc_id = f"log_{now.strftime('%Y%m%d_%H%M%S')}_dummy" # Using dummy suffix as per screenshot example or generate random? 
-    # Let's use a cleaner ID generation, but match the screenshot format if possible or just standard.
-    # Screenshot: log_20260208_164937_dummy. 
-    # We will use uuid for uniqueness if needed, but timestamp is good.
+    
+    # Generate clean ID using timestamp and session/suffix
     doc_id = f"log_{now.strftime('%Y%m%d_%H%M%S')}_{scan_session_id or 'manual'}"
 
     # Generate search_labels for efficient querying

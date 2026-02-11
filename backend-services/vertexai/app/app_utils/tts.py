@@ -7,6 +7,14 @@ import json
 
 logger = logging.getLogger(__name__)
 
+_TTS_SYSTEM_PROMPT = (
+    "声はアニメキャラクターのようで暖かく、落ち着いた親しみやすいキャラクターをイメージしてください。"
+    "また、サポートAIなので、語尾などもユーザに寄り添ったものとしてください。\n"
+    "あと、活舌ははっきりとしつつキャラクターらしさを残してください。"
+    "そのうえでイントネーションも人間と遜色ないようお願いします。\n"
+    "また、人が話す際に読み上げないもの（・や＊など）は読み上げないようお願いします。"
+)
+
 def synthesize_text(text: str, language_code: str = "ja-jp") -> str:
     """
     Synthesizes speech from text using Google Cloud Text-to-Speech (Gemini TTS model).
@@ -30,13 +38,7 @@ def synthesize_text(text: str, language_code: str = "ja-jp") -> str:
         }
 
         # User specified prompt
-        system_prompt = (
-            "声はアニメキャラクターのようで暖かく、落ち着いた親しみやすいキャラクターをイメージしてください。"
-            "また、サポートAIなので、語尾などもユーザに寄り添ったものとしてください。\n"
-            "あと、活舌ははっきりとしつつキャラクターらしさを残してください。"
-            "そのうえでイントネーションも人間と遜色ないようお願いします。\n"
-            "また、人が話す際に読み上げないもの（・や＊など）は読み上げないようお願いします。"
-        )
+        system_prompt = _TTS_SYSTEM_PROMPT
 
         data = {
             "audioConfig": {

@@ -5,7 +5,7 @@ import logging
 import asyncio
 from google.adk.agents import Agent
 from app.coco_agent.prompts.loader import load_prompt
-from app.coco_agent.tools.storage_tools import get_image_uri_from_storage
+from app.coco_agent.tools.storage_tools import get_image_uri_from_storage, get_latest_image_uri
 from app.coco_agent.tools.firestore_tools import save_monitoring_log
 from app.services.monitoring_service import get_monitoring_service
 from app.app_utils.obniz import ObnizController
@@ -14,6 +14,29 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
+obniz = ObnizController()
+
+_BASE_SCHEMA = """
+    Output JSON:
+    {
+        "found": boolean,
+        "box_2d": [ymin, xmin, ymax, xmax] or null (for the target object),
+        "label": "target object name" or "Multiple Objects" if generic,
+        "all_objects": [ 
+            { 
+                "box_2d": [ymin, xmin, ymax, xmax], 
+                "label": "object name",
+                "confidence": float (0.0-1.0)
+            },
+            ...
+        ],
+        "environment": {
+            "scene_description": "A concise description of the scene context (e.g., 'Indoor messy desk', 'Bright living room')",
+            "brightness_score": int (1-5, where 5 is very bright),
+            "trigger": "manual_query"
+        }
+    }
+    """
 
 def suspend_monitoring(reason: str = "explorer_request", duration: int = 300) -> str:
     """
@@ -55,21 +78,7 @@ def get_monitoring_status() -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
-monitor_agent = Agent(
-    name="monitor_agent",
-    model="gemini-2.5-flash",
-    description="固定画角のカメラ画像を継続的に分析し、物体検出結果をFirestoreにログする監視Agent。suspend/resumeによる排他制御をサポート。",
-    instruction=load_prompt("monitor"),
-    tools=[
-        detect_objects,
-        rotate_and_capture,
-        suspend_monitoring,
-        resume_monitoring,
-        get_monitoring_status,
-        get_image_uri_from_storage, 
-        save_monitoring_log
-    ],
-)
+
 
 # Initialize Gemini Client
 # We use google-genai library as per existing imports
@@ -108,16 +117,15 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
         return "Error: GenAI client not initialized."
 
     # 1. Get Image
+    # 1. Get Image
     if not image_uri:
         # Fetch the latest image URI if not provided
         # We use a tool from storage_tools to get the latest uploaded image
-        # For this implementation, we assume get_image_uri_from_storage returns the latest "gs://" URI
-        # Note: In a real flow, the agent might need to capture -> upload -> get URI.
-        # Here we assume an image is ready or we just get the 'latest'.
-        image_uri = get_image_uri_from_storage()
+        # Note: This fetches the actual latest file from GCS.
+        image_uri = get_latest_image_uri()
     
     if not image_uri:
-        return "Error: No image available to analyze."
+        return "Error: No image available to analyze (Bucket empty or access failed)."
 
     # 2. Construct Prompt based on Query Type
     is_generic = query.lower().strip().strip(".,!?") in [
@@ -125,27 +133,7 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
         "monitor", "check", "scan"
     ]
 
-    base_schema = """
-    Output JSON:
-    {
-        "found": boolean,
-        "box_2d": [ymin, xmin, ymax, xmax] or null (for the target object),
-        "label": "target object name" or "Multiple Objects" if generic,
-        "all_objects": [ 
-            { 
-                "box_2d": [ymin, xmin, ymax, xmax], 
-                "label": "object name",
-                "confidence": float (0.0-1.0)
-            },
-            ...
-        ],
-        "environment": {
-            "scene_description": "A concise description of the scene context (e.g., 'Indoor messy desk', 'Bright living room')",
-            "brightness_score": int (1-5, where 5 is very bright),
-            "trigger": "manual_query"
-        }
-    }
-    """
+    base_schema = _BASE_SCHEMA
 
     if is_generic:
         prompt_text = f"""
@@ -175,8 +163,8 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
         if image_uri.startswith("gs://"):
              image_part = types.Part.from_uri(file_uri=image_uri, mime_type="image/jpeg")
         else:
-             # Fallback or error if not gs://
-             pass 
+             logger.error(f"Unsupported image URI format: {image_uri}")
+             return f"Error: Unsupported image URI format: {image_uri}" 
 
         response = client.models.generate_content(
             model=model_name,
@@ -255,51 +243,9 @@ service.set_callbacks(_scan_callback_wrapper, _rotate_callback_wrapper)
 # However, for this hackathon context, we can try to schedule it if there is a running loop, or assume called externally.
 # Better: We just expose the service and let the App (agent_monitor.py or agent_engine_app.py) start it.
 # Let's try to grab the current loop if available?
-try:
-    loop = asyncio.get_event_loop()
-    if loop.is_running():
-        loop.create_task(service.start())
-except Exception:
-    pass # Loop might not be started yet
-
-def suspend_monitoring(reason: str = "explorer_request", duration: int = 300) -> str:
-    """
-    監視ループを一時停止します。Explorer Agent がカメラを操作する前に呼び出してください。
-
-    Args:
-        reason: 一時停止の理由（例: "explorer_request", "user_request"）
-        duration: 一時停止の最大期間（秒）。この期間が過ぎると自動的に再開されます。
-
-    Returns:
-        一時停止の結果メッセージ。
-    """
-    service = get_monitoring_service()
-    result = service.suspend(reason=reason, duration=duration)
-    return json.dumps(result, ensure_ascii=False)
 
 
-def resume_monitoring() -> str:
-    """
-    一時停止中の監視ループを再開します。Explorer Agent の操作が完了した後に呼び出してください。
 
-    Returns:
-        再開の結果メッセージ。
-    """
-    service = get_monitoring_service()
-    result = service.resume()
-    return json.dumps(result, ensure_ascii=False)
-
-
-def get_monitoring_status() -> str:
-    """
-    現在の監視ステータスを取得します（一時停止中か、誰が停止したか等）。
-
-    Returns:
-        監視ステータスの JSON 文字列。
-    """
-    service = get_monitoring_service()
-    result = service.get_status()
-    return json.dumps(result, ensure_ascii=False)
 
 monitor_agent = Agent(
     name="monitor_agent",

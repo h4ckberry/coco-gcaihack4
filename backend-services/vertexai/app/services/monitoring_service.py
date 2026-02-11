@@ -26,6 +26,7 @@ class MonitoringLoopService:
         idle_threshold_seconds: int = 600, # Default 10 minutes
         rotation_step_degrees: int = 30,
         rotation_steps: int = 12,
+        rotation_settle_time_seconds: int = 15,
         scan_callback: Optional[Callable[[int], None]] = None,
         rotate_callback: Optional[Callable[[int], None]] = None
     ):
@@ -39,6 +40,7 @@ class MonitoringLoopService:
         self._idle_threshold = idle_threshold_seconds
         self._rotation_step = rotation_step_degrees
         self._rotation_steps = rotation_steps
+        self._rotation_settle_time = rotation_settle_time_seconds
         self._last_activity_time = time.time()
         self._is_scanning = False
         
@@ -190,7 +192,7 @@ class MonitoringLoopService:
                 self._rotate_callback(angle)
                 
                 # Wait for rotation to settle (arbitrary small delay)
-                await asyncio.sleep(2) 
+                await asyncio.sleep(self._rotation_settle_time)
                 
                 # Scan/Analyze
                 logger.info(f"Scan step {i+1}: Analyzing...")
@@ -204,7 +206,7 @@ class MonitoringLoopService:
                 # Check if callback is async pattern? The provided tools define sync functions.
                 # We will assume sync execution for now or wrap in simple await if needed.
                 try:
-                    self._scan_callback(angle) # Pass angle or some context if needed
+                    await asyncio.to_thread(self._scan_callback, angle) # Pass angle or some context if needed
                 except Exception as e:
                     logger.error(f"Error during scan Step {i}: {e}")
 
