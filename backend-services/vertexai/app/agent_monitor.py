@@ -163,34 +163,72 @@ if __name__ == "__main__":
             print("🚀 Starting Monitor Agent locally...")
             print("Type 'exit' or 'quit' to stop.")
 
-            local_app = App(name="monitor_agent", root_agent=monitor_agent)
-            runner = InMemoryRunner(app=local_app)
+            local_app = App(
+                name="monitor_agent",
+                root_agent=monitor_agent
+            )
+
+            runner = InMemoryRunner(
+                app=local_app
+            )
+
+            # create_session is async, so we must await it
             session = await runner.session_service.create_session(
                 session_id="local-debug-session",
                 user_id="local-user",
                 app_name="monitor_agent"
             )
+            session_id = session.id
+            user_id = session.user_id
+            
+            # Start Monitoring Loop Service
+            from app.services.monitoring_service import get_monitoring_service
+            monitoring_service = get_monitoring_service()
+            await monitoring_service.start()
+            print("✅ Monitoring Service started.")
 
-            print(f"✅ Session created: {session.id}")
+            print(f"✅ Session created: {session_id}")
+
             while True:
                 try:
-                    user_input = input("User: ")
+                    # input() is blocking but acceptable for local debug script
+                    # ideally use asyncio.to_thread for input to not block the loop
+                    user_input = await asyncio.to_thread(input, "User: ")
+                    
                     if user_input.lower() in ["exit", "quit"]:
                         break
+
                     print("Agent: ", end="", flush=True)
-                    async for event in runner.run_async(
-                        user_id=session.user_id,
-                        session_id=session.id,
-                        new_message=types.Content(parts=[types.Part(text=user_input)])
-                    ):
-                        if hasattr(event, "content") and event.content and event.content.parts:
-                            for part in event.content.parts:
-                                if part.text:
-                                    print(part.text, end="", flush=True)
-                    print()
+                    # InMemoryRunner.run is synchronous generator based on inspection
+                    # but we are in async main, let's see. 
+                    # If runner.run blocks, it blocks the monitoring loop.
+                    # Use to_thread if run is purely sync blocking.
+                    # ADK runner.run is sync generator.
+                    
+                    # To keep monitoring loop alive during agent processing, we should ideally run agent in thread.
+                    # However, for simple input/output loop, standard ADK pattern:
+                    
+                    def run_turn(u_in):
+                        for event in runner.run(
+                            user_id=user_id,
+                            session_id=session_id,
+                            new_message=types.Content(parts=[types.Part(text=u_in)])
+                        ):
+                           if hasattr(event, "content") and event.content and event.content.parts:
+                                for part in event.content.parts:
+                                     if part.text:
+                                         print(part.text, end="", flush=True)
+                        print()
+
+                    await asyncio.to_thread(run_turn, user_input)
+
                 except KeyboardInterrupt:
                     break
                 except Exception as e:
                     print(f"\n❌ Error: {e}")
+            
+            await monitoring_service.stop()
 
         asyncio.run(main())
+
+

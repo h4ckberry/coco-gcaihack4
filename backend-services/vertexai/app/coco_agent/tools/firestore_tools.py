@@ -27,8 +27,20 @@ def save_monitoring_log(
         logger.info("[Mock] Saving to Firestore: " + str(detected_objects))
         return "mock_doc_id"
 
+    # Generate timestamp and doc_id
+    now = datetime.datetime.now(datetime.timezone.utc)
+    timestamp = now
+    
+    # Generate clean ID using timestamp and session/suffix
+    doc_id = f"log_{now.strftime('%Y%m%d_%H%M%S')}_{scan_session_id or 'manual'}"
+
     # Generate search_labels for efficient querying
-    search_labels = [obj.get("label", "").lower() for obj in detected_objects if obj.get("label")]
+    # Ensure we handle detected_objects which might have 'label' or 'name'
+    search_labels = []
+    for obj in detected_objects:
+        label = obj.get("label") or obj.get("name")
+        if label:
+            search_labels.append(label.lower())
 
     data = {
         "doc_id": doc_id,
@@ -37,11 +49,11 @@ def save_monitoring_log(
         "search_labels": search_labels, # Added for array-contains queries
 
         "motor_angle": motor_angle,
-        "scan_session_id": scan_session_id,
+        "scan_session_id": scan_session_id or "manual_scan",
         "is_blind_spot": False, # Placeholder logic
 
-        "environment": environment,
-        "detected_objects": detected_objects # Keep detailed objects
+        "environment": environment, # Expected to contain brightness_score, scene_description, etc.
+        "detected_objects": detected_objects # Keep detailed objects with confidence
     }
 
     try:
