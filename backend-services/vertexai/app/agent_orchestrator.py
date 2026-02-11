@@ -141,7 +141,6 @@ if __name__ == "__main__":
     import asyncio
     from google.adk.runners import InMemoryRunner
     from google.adk.apps import App
-    from google.adk.sessions.in_memory_session_service import InMemorySessionService
     from google.genai import types
 
     async def main():
@@ -149,7 +148,6 @@ if __name__ == "__main__":
         print("🚀 Starting Orchestrator Agent locally...")
         print("Type 'exit' or 'quit' to stop.")
 
-        # Local execution uses standard ADK App wrapper
         local_app = App(
             name="orchestrator_agent",
             root_agent=orchestrator_agent
@@ -159,7 +157,6 @@ if __name__ == "__main__":
             app=local_app
         )
 
-        # create_session is async, so we must await it
         session = await runner.session_service.create_session(
             session_id="local-debug-session",
             user_id="local-user",
@@ -172,31 +169,22 @@ if __name__ == "__main__":
 
         while True:
             try:
-                # input() is blocking but acceptable for local debug script
                 user_input = input("User: ")
                 if user_input.lower() in ["exit", "quit"]:
                     break
 
                 print("Agent: ", end="", flush=True)
-                # InMemoryRunner.run is synchronous generator based on inspection (wait, imported one might be async?
-                # The file used runner.run before. ADK standard seems to allow sync wrapper?
-                # But in query() I used run_async.
-                # Let's keep main block as close to original as possible, assuming it worked or user fixed it.
-                # Actually user said "🚀 Starting Orchestrator Agent locally..." worked.
-
-                # I will trust the original main block logic for local test,
-                # but I updated imports so I need to check if names conflict.
-                # I moved imports to top level.
-
-                for event in runner.run(
+                # run_async を使って A2A の httpx AsyncClient が
+                # 同一イベントループ内で正しく動作するようにする
+                async for event in runner.run_async(
                     user_id=user_id,
                     session_id=session_id,
                     new_message=types.Content(parts=[types.Part(text=user_input)])
                 ):
-                   if hasattr(event, "content") and event.content and event.content.parts:
+                    if hasattr(event, "content") and event.content and event.content.parts:
                         for part in event.content.parts:
-                             if part.text:
-                                 print(part.text, end="", flush=True)
+                            if part.text:
+                                print(part.text, end="", flush=True)
                 print()
 
             except KeyboardInterrupt:
