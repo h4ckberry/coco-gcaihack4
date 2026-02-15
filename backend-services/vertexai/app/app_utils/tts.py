@@ -77,3 +77,24 @@ def synthesize_text(text: str, language_code: str = "ja-jp") -> str:
     except Exception as e:
         logger.error(f"TTS synthesis failed: {e}")
         return ""
+
+import asyncio
+from typing import Optional
+
+async def synthesize_text_async(text: str, language_code: str = "ja-jp", timeout: Optional[float] = 60.0) -> str:
+    """
+    Asynchronous wrapper for synthesize_text using asyncio.to_thread.
+    Includes a timeout to prevent blocking indefinitely.
+    """
+    try:
+        # Run blocking sync function in a separate thread
+        return await asyncio.wait_for(
+            asyncio.to_thread(synthesize_text, text, language_code),
+            timeout=timeout
+        )
+    except asyncio.TimeoutError:
+        logger.error(f"TTS synthesis timed out after {timeout} seconds")
+        return ""
+    except Exception as e:
+        logger.error(f"Async TTS synthesis failed: {e}")
+        return ""

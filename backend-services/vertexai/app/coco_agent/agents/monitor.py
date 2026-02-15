@@ -3,8 +3,10 @@ import json
 import os
 import logging
 import asyncio
+import time
 import requests
 from google.adk.agents import Agent
+from google.adk.models import Gemini
 from app.coco_agent.prompts.loader import load_prompt
 from app.coco_agent.tools.storage_tools import get_image_uri_from_storage, get_latest_image_uri, get_storage_client
 from app.coco_agent.tools.firestore_tools import save_monitoring_log
@@ -127,7 +129,8 @@ def get_genai_client():
             from google import genai
 
             api_key = os.environ.get("GOOGLE_API_KEY")
-            use_vertex = os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "1") == "1"
+            use_vertex_str = str(os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "1")).lower()
+            use_vertex = use_vertex_str in ("1", "true", "yes", "on")
 
             if api_key and not use_vertex:
                 # Force AI Studio mode by temporarily unsetting Vertex env vars
@@ -187,6 +190,7 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
         A text summary of what was found.
     """
     # Activity update
+    logger.info(f"detect_objects called with query='{query}', image_uri='{image_uri}'")
     get_monitoring_service().update_activity()
 
     # 1. Get Image
@@ -226,52 +230,46 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
 
     try:
         # 3. Call Generative Model
-        # 3. Call Generative Model
         client = get_genai_client()
         if not client:
              return "Error: GenAI client not initialized (Auth error)."
 
-        # Using gemini-3-flash-preview as requested by user
-        model_name = "gemini-3-flash-preview"
+        # Using gemini-2.0-flash
+        model_name = "gemini-2.0-flash"
 
-        # Load image part
         # 3. Handle Image Part
-        # AI Studio mode (GOOGLE_GENAI_USE_VERTEXAI="0") does NOT support gs:// URIs directly.
-        # We need to download it if in AI Studio mode.
-        use_vertex = os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "1") == "1"
-        if image_uri.startswith("gs://"):
+        use_vertex_str = str(os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "1")).lower()
+        use_vertex = use_vertex_str in ("1", "true", "yes", "on")
+        image_part = None
+        
+        if image_uri and image_uri.startswith("gs://"):
             if use_vertex:
                 # Vertex AI supports gs:// URIs
                 image_part = types.Part.from_uri(file_uri=image_uri, mime_type="image/jpeg")
             else:
-                # AI Studio mode requires bytes or upload. Let's try to download.
+                # AI Studio mode requires bytes or upload.
                 logger.info(f"AI Studio mode detected. Attempting to download {image_uri} for analysis...")
-
                 bucket_name, blob_name = parse_gcs_uri(image_uri)
                 if not bucket_name or not blob_name:
                     return f"Error: Invalid GCS URI format: {image_uri}"
 
                 # Helper to get image bytes
                 image_bytes = None
-                download_error = None
-
+                
                 # 1. Try Authenticated GCS Client
                 try:
                     storage_client = get_storage_client()
-
                     if storage_client:
                         bucket = storage_client.bucket(bucket_name)
                         blob = bucket.blob(blob_name)
                         image_bytes = blob.download_as_bytes()
                         logger.info(f"Successfully downloaded via GCS Client: {image_uri}")
                 except Exception as e:
-                    download_error = e
                     logger.warning(f"GCS Client download failed (trying fallback): {e}")
 
                 # 2. Fallback: Try Public/Signed URL via HTTP
                 if image_bytes is None:
                     try:
-                        # Note: This only works if object is public
                         public_url = f"https://storage.googleapis.com/{bucket_name}/{blob_name}"
                         logger.info(f"Attempting download via Public URL: {public_url}")
                         resp = requests.get(public_url, timeout=10)
@@ -291,22 +289,39 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
              logger.error(f"Unsupported image URI format: {image_uri}")
              return f"Error: Unsupported image URI format: {image_uri}"
 
-        response = client.models.generate_content(
-            model=model_name,
-            contents=[
-                types.Content(
-                    role="user",
-                    parts=[
-                        types.Part.from_text(text=prompt_text),
-                        image_part
-                    ]
+        # Retry Loop for Model Call
+        max_retries = 3
+        response = None
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Calling Gemini model ({model_name}) - Attempt {attempt + 1}/{max_retries}")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[
+                        types.Content(
+                            role="user",
+                            parts=[
+                                types.Part.from_text(text=prompt_text),
+                                image_part
+                            ]
+                        )
+                    ],
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.5
+                    )
                 )
-            ],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.5
-            )
-        )
+                if response:
+                    break
+            except Exception as e:
+                logger.warning(f"Gemini call failed (Attempt {attempt + 1}): {e}")
+                last_error = e
+                time.sleep(2 * (attempt + 1)) # Exponential backoff
+
+        if not response:
+             raise last_error or Exception("Failed to get response from Gemini after retries.")
 
         # 4. Parse Response
         text_resp = response.text.strip()
@@ -320,7 +335,6 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
 
         # 5. Save to Firestore
         env_data = data.get("environment", {})
-        # Ensure trigger is set properly if missing
         if "trigger" not in env_data:
             env_data["trigger"] = "query" if not is_generic else "monitor"
 
@@ -329,7 +343,7 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
             detected_objects=data.get("all_objects", []),
             environment=env_data,
             motor_angle=obniz_controller.current_angle if hasattr(obniz_controller, "current_angle") else 0,
-            scan_session_id=None # Single shot query
+            scan_session_id=None 
         )
 
         # 6. Return Summary
@@ -340,7 +354,7 @@ def detect_objects(query: str = "detect everything", image_uri: Optional[str] = 
             return f"Monitoring Report: Detected {len(data.get('all_objects', []))} objects. Scene: {env_data.get('scene_description', 'No description')}."
         else:
             if found:
-                return f"Found '{main_label}'. (Confidence: High)" # JSON usually has list, but 'found' flag confirms it.
+                return f"Found '{main_label}'. (Confidence: High)"
             else:
                 return f"Could not find '{query}' in the current view."
 
@@ -374,7 +388,10 @@ service.set_callbacks(_scan_callback_wrapper, _rotate_callback_wrapper)
 
 monitor_agent = Agent(
     name="monitor_agent",
-    model="gemini-3-flash-preview",
+    model=Gemini(
+        model="gemini-2.0-flash",
+        retry_options=types.HttpRetryOptions(attempts=3),
+    ),
     description="固定画角のカメラ画像を継続的に分析し、物体検出結果をFirestoreにログする監視Agent。suspend/resumeによる排他制御をサポート。",
     instruction=load_prompt("monitor"),
     tools=[
@@ -384,7 +401,7 @@ monitor_agent = Agent(
         resume_monitoring,
         get_monitoring_status,
         get_image_uri_from_storage,
-        save_monitoring_log
+
     ]
 
 )

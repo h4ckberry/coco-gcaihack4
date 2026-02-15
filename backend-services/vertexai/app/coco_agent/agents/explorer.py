@@ -1,4 +1,6 @@
-from google.adk.agents.llm_agent import Agent
+from google.adk.agents import Agent
+from google.adk.models import Gemini
+from google.genai import types
 from app.coco_agent.prompts.loader import load_prompt
 from app.coco_agent.tools.firestore_tools import search_logs
 from app.app_utils.obniz import ObnizController
@@ -31,7 +33,10 @@ async def rotate_to_target(angle: int, tool_context: ToolContext = None) -> str:
 
 explorer_agent = Agent(
     name="explorer_agent",
-    model="gemini-2.0-flash",
+    model=Gemini(
+        model="gemini-2.0-flash",
+        retry_options=types.HttpRetryOptions(attempts=3),
+    ),
     description="Agent for physically searching for objects and controlling the camera.",
     instruction=load_prompt("explorer"),
     tools=[search_logs, rotate_to_target],

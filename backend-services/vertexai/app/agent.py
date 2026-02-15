@@ -21,6 +21,7 @@ from google.adk.apps import App
 from google.adk.models import Gemini
 from google.genai import types
 
+
 import os
 import google.auth
 
@@ -30,7 +31,8 @@ except (Exception, ValueError):
     # Fallback for local testing or when auth fails
     project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "local-project")
 os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
-os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
+if "GOOGLE_CLOUD_LOCATION" not in os.environ:
+    os.environ["GOOGLE_CLOUD_LOCATION"] = "us-central1"
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
 
 
@@ -70,11 +72,15 @@ def get_current_time(query: str) -> str:
 root_agent = Agent(
     name="root_agent",
     model=Gemini(
-        model="gemini-3-flash-preview",
+        model="gemini-1.5-flash",
         retry_options=types.HttpRetryOptions(attempts=3),
     ),
     instruction="You are a helpful AI assistant designed to provide accurate and useful information.",
     tools=[get_weather, get_current_time],
 )
 
-app = App(root_agent=root_agent, name="app")
+
+app = App(
+    root_agent=root_agent,
+    name="app"
+)

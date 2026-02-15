@@ -93,7 +93,32 @@ async def search_logs(query_label: str, limit: int = 5, tool_context: ToolContex
 
     db = get_db()
 
-# ... (middle parts omitted, no changes needed inside) ...
+    if db is None:
+        logger.info(f"[Mock] Searching logs for: {query_label}")
+        return []
+
+    try:
+        # Use array-contains query on search_labels
+        # Note: We removed .order_by("timestamp") to avoid requiring a specific composite index.
+        # We will fetch slightly more docs and sort in memory.
+        docs_stream = db.collection("monitoring_logs").where(
+            filter=firestore.FieldFilter("search_labels", "array_contains", query_label.lower())
+        ).limit(limit * 3).stream() # Fetch 3x limit to sorting space
+
+        results = [doc.to_dict() for doc in docs_stream]
+        
+        # Client-side sort by timestamp descending
+        # Ensure timestamp field exists and is comparable (handle None)
+        results.sort(key=lambda x: x.get("timestamp", datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)), reverse=True)
+        
+        # Apply limit after sorting
+        results = results[:limit]
+
+        logger.info(f"Search found {len(results)} logs for '{query_label}'")
+        return results
+    except Exception as e:
+        logger.error(f"Failed to search logs: {e}")
+        return []
 
 async def get_recent_context(limit: int = 3, tool_context: ToolContext = None) -> List[Dict[str, Any]]:
     """
@@ -114,3 +139,4 @@ async def get_recent_context(limit: int = 3, tool_context: ToolContext = None) -
     except Exception as e:
         logger.error(f"Failed to get recent context: {e}")
         return []
+

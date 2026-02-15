@@ -15,8 +15,8 @@ const clientOptions = {
 
 const client = new ReasoningEngineExecutionServiceClient(clientOptions);
 
-// Timeout for long-running queries (120 seconds = 2 minutes)
-const CALL_TIMEOUT_MS = 120000;
+// Timeout for long-running queries (300 seconds = 5 minutes)
+const CALL_TIMEOUT_MS = 300000;
 
 export async function POST(req: NextRequest) {
   try {

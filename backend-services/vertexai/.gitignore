@@ -203,4 +203,8 @@ tools/a2a-inspector/
 deployment_metadata.json
 
 
+
+# Deployment scripts (Monitor Agent Trigger)
+functions/trigger-monitor/deploy.ps1
+functions/trigger-monitor/deploy.sh
 credentials.json

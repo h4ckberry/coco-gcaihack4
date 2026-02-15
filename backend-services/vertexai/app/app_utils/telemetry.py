@@ -18,12 +18,17 @@ import os
 
 def setup_telemetry() -> str | None:
     """Configure OpenTelemetry and GenAI telemetry with GCS upload."""
-    os.environ.setdefault("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "true")
+    # Force DISABLE telemetry to prevent OTel from crashing on large audio payloads
+    # TODO: This is a high priority technical debt. Disabling telemetry hides important observability data.
+    # Needs investigation into OTel exporter TypeError with large payloads.
+    os.environ["GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"] = "false"
+    # os.environ.setdefault("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "true")
 
     bucket = os.environ.get("LOGS_BUCKET_NAME")
-    capture_content = os.environ.get(
-        "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "false"
-    )
+    # FORCE DISABLE content capture to verify if it fixes the TypeError in OTel exporter
+    # The current library seems to pass a dict as an attribute which crashes the GCS exporter.
+    capture_content = "false" 
+    # os.environ.get("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "false")
     if bucket and capture_content != "false":
         logging.info(
             "Prompt-response logging enabled - mode: NO_CONTENT (metadata only, no prompts/responses)"

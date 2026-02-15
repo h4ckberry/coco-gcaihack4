@@ -32,14 +32,23 @@ class AgentEngineApp(AdkApp):
         super().set_up()
         configure_logging()
         logging_client = google_cloud_logging.Client()
-        self.logger = logging_client.logger(__name__)
+        # Use standard logger for app compatibility, but keep cloud logger if needed for structured logs?
+        # The crash was due to self.logger.info() call on cloud logger. 
+        # We will separate them or just use standard logger.
+        # Let's use standard logger as self.logger.
+        self.logger = logging.getLogger(__name__)
+        self.cloud_logger = logging_client.logger(__name__)
         if gemini_location:
             os.environ["GOOGLE_CLOUD_LOCATION"] = gemini_location
 
     def register_feedback(self, feedback: dict[str, Any]) -> None:
         """Collect and log feedback."""
         feedback_obj = Feedback.model_validate(feedback)
-        self.logger.log_struct(feedback_obj.model_dump(), severity="INFO")
+        # Use cloud logger for structured logging if available, else standard
+        if hasattr(self, "cloud_logger"):
+             self.cloud_logger.log_struct(feedback_obj.model_dump(), severity="INFO")
+        else:
+             self.logger.info(f"Feedback: {feedback_obj.model_dump()}")
 
     def register_operations(self) -> dict[str, list[str]]:
         """Registers the operations of the Agent."""
@@ -90,6 +99,10 @@ class AgentEngineApp(AdkApp):
         )
 
         response_text = []
+
+        # Variables to track speech content
+        speech_text_from_tool = None
+
         try:
             # Run the agent
             async for event in runner.run_async(
@@ -97,22 +110,52 @@ class AgentEngineApp(AdkApp):
                 user_id=session.user_id,
                 new_message=types.Content(parts=[types.Part(text=user_input)])
             ):
-                if hasattr(event, "content") and event.content and event.content.parts:
-                    for part in event.content.parts:
-                        if part.text:
-                            response_text.append(part.text)
+                try:
+                    # Log event type for debugging
+                    self.logger.info(f"Runner Event Type: {type(event)}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to log event: {e}")
+
+                if hasattr(event, "content") and event.content:
+                     # 1. Capture text parts for fallback
+                    if event.content.parts:
+                        for part in event.content.parts:
+                            if part.text:
+                                response_text.append(part.text)
+                            
+                            # 2. Capture generate_speech tool calls
+                            if part.function_call and part.function_call.name == "generate_speech":
+                                try:
+                                    args = part.function_call.args
+                                    # Args can be huge dict or struct, need to parse carefully if it's not already dict
+                                    # In ADK, args is usually a dict-like object
+                                    if "text" in args:
+                                        speech_text_from_tool = args["text"]
+                                        self.logger.info(f"Captured speech from tool: {speech_text_from_tool[:50]}...")
+                                except Exception as e:
+                                    self.logger.error(f"Failed to parse generate_speech args: {e}")
+
         except Exception as e:
-            print(f"ERROR during agent run: {e}")
+            self.logger.error(f"ERROR during agent run: {e}", exc_info=True)
             return {"error": f"Agent execution failed: {str(e)}"}
 
-        # Synthesize text to speech
-        from app.app_utils.tts import synthesize_text
+        # Determine final audio content
+        # Priority: 
+        # 1. Text from `generate_speech` tool call (if present)
+        # 2. Accumulated text response (fallback)
+        
         final_text = "".join(response_text)
+        text_to_speak = speech_text_from_tool if speech_text_from_tool else final_text
         audio_content = ""
-        try:
-            audio_content = synthesize_text(final_text)
-        except Exception as e:
-            print(f"TTS synthesis failed (non-fatal): {e}")
+
+        if text_to_speak:
+            from app.app_utils.tts import synthesize_text_async
+            try:
+                # Use the selected text for speech, with a 60s timeout for Leda model
+                audio_content = await synthesize_text_async(text_to_speak, timeout=60.0)
+            except Exception as e:
+                # This catch is for any non-timeout errors in the await itself
+                self.logger.error(f"TTS synthesis failed (critical): {e}")
 
         return {"output": final_text, "audio_content": audio_content}
 

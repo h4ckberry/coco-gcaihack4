@@ -2,6 +2,7 @@ import logging
 logging.getLogger("google.adk").setLevel(logging.INFO)
 import os
 import sys
+import asyncio
 import json
 from typing import Any
 
@@ -56,11 +57,14 @@ from app.services.monitoring_service import get_monitoring_service
 gemini_location = os.environ.get("GOOGLE_CLOUD_LOCATION")
 logs_bucket_name = os.environ.get("LOGS_BUCKET_NAME")
 
+logger = logging.getLogger(__name__)
+
+
 class AgentEngineApp(AdkApp):
     def set_up(self) -> None:
         """Initialize the agent engine app with logging and telemetry."""
         vertexai.init()
-        setup_telemetry()
+        # setup_telemetry() # Disabling telemetry to prevent SSLEOFError in Cloud Run
         super().set_up()
         configure_logging()
         logging_client = google_cloud_logging.Client()
@@ -68,15 +72,100 @@ class AgentEngineApp(AdkApp):
         if gemini_location:
             os.environ["GOOGLE_CLOUD_LOCATION"] = gemini_location
 
+
     def register_feedback(self, feedback: dict[str, Any]) -> None:
         """Collect and log feedback."""
         feedback_obj = Feedback.model_validate(feedback)
         self.logger.log_struct(feedback_obj.model_dump(), severity="INFO")
 
+# app/agent_monitor.py の修正版
+
+    async def chat(self, session_id: str, user_input: str, user_id: str = "default-user") -> dict[str, Any]:
+        """Chats with the agent.
+        
+        注意: セッション永続化の問題を回避するため、
+        Runnerのセッション管理を使わず、毎回新規セッションを作成します。
+        """
+        logger.info(f"DEBUG: chat called with session_id={session_id}, user_input={user_input}, user_id={user_id}")
+
+        if not user_input:
+            return {"error": "user_input is required"}
+
+        from google.adk.runners import InMemoryRunner
+        from google.genai import types
+
+        # InMemoryRunnerを使用（Vertex AIセッションサービスの問題を回避）
+        runner = InMemoryRunner(
+            app=monitor_app
+        )
+
+        # 新しいセッションを作成
+        try:
+            # session_idを識別子として使いながら、実際は毎回新規作成
+            import uuid
+            temp_session_id = f"session-{uuid.uuid4().hex[:8]}"
+            
+            session = await runner.session_service.create_session(
+                app_name="monitor_agent",
+                user_id=user_id,
+                session_id=temp_session_id
+            )
+            
+            actual_session_id = session.id
+            logger.info(f"Created temporary session: {actual_session_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to create session: {e}", exc_info=True)
+            return {"error": f"Session creation failed: {str(e)}"}
+
+        full_text = ""
+        try:
+            # Runnerを実行
+            async for event in runner.run_async(
+                user_id=user_id,
+                session_id=actual_session_id,
+                new_message=types.Content(parts=[types.Part(text=user_input)])
+            ):
+                if hasattr(event, "content") and event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if part.text:
+                            full_text += part.text
+                            
+        except Exception as e:
+            logger.error(f"Agent execution failed: {e}", exc_info=True)
+            return {"error": f"Agent execution failed: {str(e)}"}
+        
+        if not full_text:
+            return {"output": "Agent completed task without text output."}
+
+        return {"output": full_text}
+
+
+    async def create_user_session(self, user_id: str = "default-user") -> dict[str, Any]:
+        """Creates a new session ID for the user.
+        
+        Returns a simple UUID that can be used with the chat method.
+        The actual Vertex AI session will be created/managed by the Runner.
+        """
+        import uuid
+        
+        logger.info(f"DEBUG: create_user_session called with user_id={user_id}")
+        
+        # シンプルなUUIDを生成
+        # Runnerが実際のVertex AIセッションを管理するため、
+        # ここでは識別子を生成するだけで良い
+        session_id = uuid.uuid4().hex[:16]
+        
+        logger.info(f"Generated session_id: {session_id}")
+        return {"session_id": session_id}
+
+    # ... (existing register_operations) ...
+
     def register_operations(self) -> dict[str, list[str]]:
         """Registers the operations of the Agent."""
         operations = super().register_operations()
-        operations[""] = operations.get("", []) + ["register_feedback"]
+        # Ensure our sync methods are correctly exposed
+        operations[""] = operations.get("", []) + ["register_feedback", "chat", "create_user_session"]
         return operations
 
 # Global App Wrappers
@@ -156,6 +245,19 @@ def create_a2a_app():
             Route("/api/resume", api_resume, methods=["POST"]),
             Route("/api/status", api_status, methods=["GET"]),
         ])
+
+        # 【追加】起動時に監視ループを開始する
+        @starlette_app.on_event("startup")
+        async def startup_event():
+            logger.info("Starting Monitoring Loop via A2A App Startup...")
+            # 非同期タスクとして監視サービスを開始
+            asyncio.create_task(service.start())
+
+        # 【追加】終了時に停止する
+        @starlette_app.on_event("shutdown")
+        async def shutdown_event():
+            logger.info("Stopping Monitoring Loop...")
+            await service.stop()
 
         logging.getLogger(__name__).info(
             f"A2A + REST app created for Monitor Agent at {protocol}://{host}:{port}"
