@@ -245,6 +245,20 @@ def create_a2a_app():
             Route("/api/status", api_status, methods=["GET"]),
         ])
 
+        # 【追加】起動時に監視ループを開始する
+        @starlette_app.on_event("startup")
+        async def startup_event():
+            logger.info("Starting Monitoring Loop via A2A App Startup...")
+            # 非同期タスクとして監視サービスを開始
+            import asyncio
+            asyncio.create_task(service.start())
+
+        # 【追加】終了時に停止する
+        @starlette_app.on_event("shutdown")
+        async def shutdown_event():
+            logger.info("Stopping Monitoring Loop...")
+            await service.stop()
+
         logging.getLogger(__name__).info(
             f"A2A + REST app created for Monitor Agent at {protocol}://{host}:{port}"
         )

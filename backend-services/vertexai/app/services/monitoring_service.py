@@ -23,7 +23,7 @@ class MonitoringLoopService:
     def __init__(
         self,
         scan_interval_seconds: int = 30,
-        idle_threshold_seconds: int = 600, # Default 10 minutes
+        idle_threshold_seconds: int = 3600, # Default 60 minutes
         rotation_step_degrees: int = 30,
         rotation_steps: int = 12,
         rotation_settle_time_seconds: int = 15,
