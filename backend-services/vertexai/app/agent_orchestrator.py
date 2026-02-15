@@ -136,7 +136,7 @@ class AgentEngineApp(AdkApp):
                                     self.logger.error(f"Failed to parse generate_speech args: {e}")
 
         except Exception as e:
-            print(f"ERROR during agent run: {e}")
+            self.logger.error(f"ERROR during agent run: {e}", exc_info=True)
             return {"error": f"Agent execution failed: {str(e)}"}
 
         # Determine final audio content

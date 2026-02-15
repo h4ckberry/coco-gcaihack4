@@ -55,7 +55,7 @@ async def main():
     # 5. Run Agent
     try:
         response_text = ""
-        for event in runner.run(
+        async for event in runner.run_async(
             session_id=session.id,
             user_id="debug-user",
             new_message=types.Content(parts=[types.Part(text=prompt_text)])

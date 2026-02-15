@@ -2,6 +2,7 @@ import logging
 logging.getLogger("google.adk").setLevel(logging.INFO)
 import os
 import sys
+import asyncio
 import json
 from typing import Any
 
@@ -250,7 +251,6 @@ def create_a2a_app():
         async def startup_event():
             logger.info("Starting Monitoring Loop via A2A App Startup...")
             # 非同期タスクとして監視サービスを開始
-            import asyncio
             asyncio.create_task(service.start())
 
         # 【追加】終了時に停止する

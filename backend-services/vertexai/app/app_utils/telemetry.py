@@ -19,6 +19,8 @@ import os
 def setup_telemetry() -> str | None:
     """Configure OpenTelemetry and GenAI telemetry with GCS upload."""
     # Force DISABLE telemetry to prevent OTel from crashing on large audio payloads
+    # TODO: This is a high priority technical debt. Disabling telemetry hides important observability data.
+    # Needs investigation into OTel exporter TypeError with large payloads.
     os.environ["GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"] = "false"
     # os.environ.setdefault("GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY", "true")
 
