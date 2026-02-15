@@ -1,0 +1,55 @@
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://unpkg.com/obniz/obniz.js"></script>
+</head>
+
+<body>
+
+  <script>
+    // ★ここに自分のobniz IDを入れてください★
+    var OBNIZ_ID = "xxxx-xxxx";
+
+    var obniz = new Obniz(OBNIZ_ID);
+
+    obniz.onconnect = async function () {
+
+      // Pythonから送られたデータ (例: { "angle": 90 })
+      var targetAngle = 90; // デフォルト
+
+      if (typeof req === "object" && req.body) {
+        // angleが含まれていればそれを使う、なければ90度
+        if (req.body.angle !== undefined) {
+          targetAngle = parseInt(req.body.angle);
+        }
+      }
+
+      // ディスプレイに状況を表示
+      obniz.display.clear();
+      obniz.display.print("Move to: " + targetAngle);
+
+      // --- サーボモータの制御 ---
+      // 配線に合わせて設定を変更 (0:GND, 1:VCC, 2:Signal)
+      var servo = obniz.wired("ServoMotor", { gnd: 0, vcc: 1, signal: 2 });
+
+      // 指定した角度へ回転
+      servo.angle(targetAngle);
+
+      // 動作完了まで待機 (SG-5010は少し遅いので長めに1秒待つ)
+      await obniz.wait(1000);
+
+      // 終了処理
+      if (typeof done === "function") {
+        done();
+      }
+    };
+
+    obniz.onclose = function () {
+      if (typeof done === "function") done();
+    };
+  </script>
+</body>
+
+</html>
